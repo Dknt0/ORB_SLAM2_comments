@@ -51,13 +51,18 @@
 #ifndef PNPSOLVER_H
 #define PNPSOLVER_H
 
-#include <opencv2/core/core.hpp>
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc/imgproc_c.h>
 #include "MapPoint.h"
 #include "Frame.h"
 
 namespace ORB_SLAM2
 {
 
+// EPnP 算法
+// https://github.com/cvlab-epfl/EPnP/
+
+/// @brief PnP 求解器
 class PnPsolver {
  public:
   PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches);
@@ -77,12 +82,14 @@ class PnPsolver {
   bool Refine();
 
   // Functions from the original EPnP code
+
+  double compute_pose(double R[3][3], double T[3]);
+  
   void set_maximum_number_of_correspondences(const int n);
   void reset_correspondences(void);
   void add_correspondence(const double X, const double Y, const double Z,
               const double u, const double v);
 
-  double compute_pose(double R[3][3], double T[3]);
 
   void relative_error(double & rot_err, double & transl_err,
               const double Rtrue[3][3], const double ttrue[3],
@@ -124,72 +131,70 @@ class PnPsolver {
 
   void mat_to_quat(const double R[3][3], double q[4]);
 
+  // 以下"关联"指 3D-2D 投影关联
 
-  double uc, vc, fu, fv;
+  /* EPnP 内部变量 */
+  double uc, vc, fu, fv;  // 相机内参
+  double * pws;  // 空间点世界坐标  3 * max_n
+  double * us;  // 空间点像素坐标  2 * max_n
+  double * alphas;  // 空间点对应控制点系数  4 * max_n
+  double * pcs;  // 空间点相机坐标  3 * max_n
+  int maximum_number_of_correspondences;  // 最大关联数量
+  int number_of_correspondences;  // 当前关联数量
+  double cws[4][3];  // 控制点世界坐标
+  double ccs[4][3];  // 控制点相机坐标
+  double cws_determinant;  // 没有用到
 
-  double * pws, * us, * alphas, * pcs;
-  int maximum_number_of_correspondences;
-  int number_of_correspondences;
-
-  double cws[4][3], ccs[4][3];
-  double cws_determinant;
-
-  vector<MapPoint*> mvpMapPointMatches;
-
-  // 2D Points
-  vector<cv::Point2f> mvP2D;
-  vector<float> mvSigma2;
-
-  // 3D Points
-  vector<cv::Point3f> mvP3Dw;
-
-  // Index in Frame
-  vector<size_t> mvKeyPointIndices;
-
-  // Current Estimation
-  double mRi[3][3];
-  double mti[3];
-  cv::Mat mTcwi;
-  vector<bool> mvbInliersi;
-  int mnInliersi;
-
-  // Current Ransac State
-  int mnIterations;
-  vector<bool> mvbBestInliers;
-  int mnBestInliers;
-  cv::Mat mBestTcw;
-
-  // Refined
-  cv::Mat mRefinedTcw;
-  vector<bool> mvbRefinedInliers;
-  int mnRefinedInliers;
-
+  /* 地图点与关键点相关  在 RANSAC, EPnP 计算过程中作为常数使用 */
   // Number of Correspondences
-  int N;
-
+  vector<MapPoint*> mvpMapPointMatches;  // 匹配地图点集  原始输入，包含空指针和坏点指针，需筛选
+  // 3D Points
+  int N;  // 3D-2D 投影关联总数  有效地图点观测数量
+  vector<cv::Point3f> mvP3Dw;  // 有效地图点空间位置  无坏点  按照有效地图点顺序索引
+  // 2D Points
+  vector<cv::Point2f> mvP2D;  // 关键点集  按照有效地图点顺序索引
+  vector<float> mvSigma2;  // 尺度比例平方  按照有效地图点顺序索引
+  // Index in Frame
+  vector<size_t> mvKeyPointIndices;  // 有效地图点 对应 匹配地图点集 id  按照有效地图点顺序索引
   // Indices for random selection [0 .. N-1]
-  vector<size_t> mvAllIndices;
+  vector<size_t> mvAllIndices;  // RANSAC 采样有效地图点序号  这个貌似没意义，0中存0，1中存1...
 
+  /* 当前估计值 */
+  // Current Estimation
+  double mRi[3][3];  // 当前姿态估计
+  double mti[3];  // 当前位置估计
+  cv::Mat mTcwi;  // 当前位姿
+  vector<bool> mvbInliersi;  // 当前内点标志位
+  int mnInliersi;  // 当前内点数量
+
+  /* 当前 RANSAC 状态 */
+  // Current Ransac State
+  int mnIterations;  // RANSAC 迭代总次数
+  vector<bool> mvbBestInliers;  // RANSAC 最佳内点数量 对应内点标志位
+  int mnBestInliers;  // 当前 RANSAC 最佳内点数量
+  cv::Mat mBestTcw; // RANSAC 最佳内点数量 对应 Tcw
+
+  /* 改善后状态 */
+  // Refined
+  cv::Mat mRefinedTcw;  // 改善后相机位姿 Tcw
+  vector<bool> mvbRefinedInliers;  // 改善后内点
+  int mnRefinedInliers;  // 改善后内点数量
+
+  /* RANSAC 相关 */
   // RANSAC probability
-  double mRansacProb;
-
+  double mRansacProb;  // =0.99 RANSAC 概率
   // RANSAC min inliers
-  int mRansacMinInliers;
-
+  int mRansacMinInliers;  // =8 RANSAC 最少内点数
   // RANSAC max iterations
-  int mRansacMaxIts;
-
+  int mRansacMaxIts;  // RANSAC 最大迭代次数
   // RANSAC expected inliers/total ratio
-  float mRansacEpsilon;
-
+  float mRansacEpsilon;  // =0.4 RANSAC 期望内点/总数比例
   // RANSAC Threshold inlier/outlier. Max error e = dist(P1,T_12*P2)^2
-  float mRansacTh;
-
+  float mRansacTh;  // RANSAC 内点/总数比例阈值
   // RANSAC Minimun Set used at each iteration
-  int mRansacMinSet;
-
+  int mRansacMinSet;  // =4  RANSAC 最小关联数量  求解一次 EPnP 随机添加的关联数
   // Max square error associated with scale level. Max error = th*th*sigma(level)*sigma(level)
-  vector<float> mvMaxError;
+  vector<float> mvMaxError;  // 依据尺度级别计算的平方误差阈值 用于内点筛选
 
 };
 

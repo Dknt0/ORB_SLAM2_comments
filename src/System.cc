@@ -18,8 +18,6 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-
-
 #include "System.h"
 #include "Converter.h"
 #include <thread>
@@ -29,9 +27,15 @@
 namespace ORB_SLAM2
 {
 
+/// @brief 系统构造函数
+/// @param strVocFile 词袋路径
+/// @param strSettingsFile 配置文件路径
+/// @param sensor 传感器类型
+/// @param bUseViewer 是否使用 Viewer
 System::System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor,
-               const bool bUseViewer):mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false),mbActivateLocalizationMode(false),
-        mbDeactivateLocalizationMode(false)
+               const bool bUseViewer)
+    : mSensor(sensor), mpViewer(static_cast<Viewer*>(NULL)), mbReset(false),mbActivateLocalizationMode(false),
+      mbDeactivateLocalizationMode(false)
 {
     // Output welcome message
     cout << endl <<
@@ -49,7 +53,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     else if(mSensor==RGBD)
         cout << "RGB-D" << endl;
 
-    //Check settings file
+    // Check settings file
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
@@ -57,8 +61,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
        exit(-1);
     }
 
-
-    //Load ORB Vocabulary
+    // Load ORB Vocabulary
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
     mpVocabulary = new ORBVocabulary();
@@ -71,16 +74,15 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
     cout << "Vocabulary loaded!" << endl << endl;
 
-    //Create KeyFrame Database
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
-
-    //Create the Map
     mpMap = new Map();
 
+    // FrameDrawer 和 MapDrawer 是直接在 Pangolin 中绘图的
     //Create Drawers. These are used by the Viewer
     mpFrameDrawer = new FrameDrawer(mpMap);
     mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
 
+    // 跟踪线程，主线程
     //Initialize the Tracking thread
     //(it will live in the main thread of execution, the one that called this constructor)
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
@@ -101,7 +103,8 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
         mptViewer = new thread(&Viewer::Run, mpViewer);
         mpTracker->SetViewer(mpViewer);
     }
-
+    
+    // 三个线程之间是互相联系的
     //Set pointers between threads
     mpTracker->SetLocalMapper(mpLocalMapper);
     mpTracker->SetLoopClosing(mpLoopCloser);
@@ -113,6 +116,11 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mpLoopCloser->SetLocalMapper(mpLocalMapper);
 }
 
+/// @brief 追踪双目图像  先检查标志位，设置对应模式。之后将图像输入到 Tracking，并更新地图点和特征点
+/// @param imLeft 
+/// @param imRight 
+/// @param timestamp 
+/// @return 
 cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp)
 {
     if(mSensor!=STEREO)
@@ -121,11 +129,14 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
         exit(-1);
     }   
 
+    /* 1.重定位模式检查 */
+    // 这里为什么要用双标志?
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
         if(mbActivateLocalizationMode)
         {
+            // 暂停局部地图管理
             mpLocalMapper->RequestStop();
 
             // Wait until Local Mapping has effectively stopped
@@ -140,23 +151,30 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);
+            // 开启局部地图管理
             mpLocalMapper->Release();
             mbDeactivateLocalizationMode = false;
         }
     }
-
+    
+    /* 2.退出检查 */
     // Check reset
     {
-    unique_lock<mutex> lock(mMutexReset);
-    if(mbReset)
-    {
-        mpTracker->Reset();
-        mbReset = false;
-    }
+        unique_lock<mutex> lock(mMutexReset);
+        if(mbReset)
+        {
+            mpTracker->Reset();
+            mbReset = false;
+        }
     }
 
+    /* 3.追踪双目图像  调用 Tracking::GrabImageStereo */
+
+    // 没有矫畸变，ORB-SLAM 中的矫畸变是在特征提取之后进行的
     cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);
-
+    
+    /* 4.同步 Tracking 中当前帧信息 */
+    // 将 Tracker 中的地图点和特征点更新到了系统
     unique_lock<mutex> lock2(mMutexState);
     mTrackingState = mpTracker->mState;
     mTrackedMapPoints = mpTracker->mCurrentFrame.mvpMapPoints;
@@ -164,6 +182,11 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     return Tcw;
 }
 
+/// @brief 追踪深度图  先检查标志位，设置对应模式。之后将图像输入到 Tracking，并更新地图点和特征点
+/// @param im 
+/// @param depthmap 
+/// @param timestamp 
+/// @return 
 cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp)
 {
     if(mSensor!=RGBD)
@@ -215,6 +238,10 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     return Tcw;
 }
 
+/// @brief 追踪单目图像  先检查标志位，设置对应模式。之后将图像输入到 Tracking，并更新地图点和特征点
+/// @param im 
+/// @param timestamp 
+/// @return 
 cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
 {
     if(mSensor!=MONOCULAR)
@@ -257,6 +284,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     }
     }
 
+    // 没有矫畸变？
     cv::Mat Tcw = mpTracker->GrabImageMonocular(im,timestamp);
 
     unique_lock<mutex> lock2(mMutexState);
@@ -267,21 +295,25 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     return Tcw;
 }
 
+/// @brief 启动纯定位模式
 void System::ActivateLocalizationMode()
 {
     unique_lock<mutex> lock(mMutexMode);
     mbActivateLocalizationMode = true;
 }
 
+/// @brief 关闭纯定位模式
 void System::DeactivateLocalizationMode()
 {
     unique_lock<mutex> lock(mMutexMode);
     mbDeactivateLocalizationMode = true;
 }
 
+/// @brief 距离上次调用地图是否因为闭环、全局BA发生大改变
+/// @return 
 bool System::MapChanged()
 {
-    static int n=0;
+    static int n=0; // 静态变量
     int curn = mpMap->GetLastBigChangeIdx();
     if(n<curn)
     {
@@ -292,12 +324,14 @@ bool System::MapChanged()
         return false;
 }
 
+/// @brief 重置系统
 void System::Reset()
 {
     unique_lock<mutex> lock(mMutexReset);
     mbReset = true;
 }
 
+/// @brief 关闭系统  保存轨迹之前必须先调用该函数
 void System::Shutdown()
 {
     mpLocalMapper->RequestFinish();
@@ -315,10 +349,17 @@ void System::Shutdown()
         usleep(5000);
     }
 
+    // ?
     if(mpViewer)
         pangolin::BindToContext("ORB-SLAM2: Map Viewer");
 }
 
+/// @brief 按照 TUM RGB-D 数据集的格式保存相机轨迹
+/// Only for stereo and RGB-D. This method does not work for monocular.
+/// Call first Shutdown()
+/// See format details at: http://vision.in.tum.de/data/datasets/rgbd-dataset
+///
+/// @param filename 
 void System::SaveTrajectoryTUM(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
@@ -379,7 +420,12 @@ void System::SaveTrajectoryTUM(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
-
+/// @brief 按照 TUM RGB-D 数据集的格式保存关键帧的相机位姿
+/// This method works for all sensor input.
+/// Call first Shutdown()
+/// See format details at: http://vision.in.tum.de/data/datasets/rgbd-dataset
+///
+/// @param filename 
 void System::SaveKeyFrameTrajectoryTUM(const string &filename)
 {
     cout << endl << "Saving keyframe trajectory to " << filename << " ..." << endl;
@@ -416,6 +462,12 @@ void System::SaveKeyFrameTrajectoryTUM(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
+/// @brief 按照 KITTI 数据集的格式保存相机轨迹
+/// Only for stereo and RGB-D. This method does not work for monocular.
+/// Call first Shutdown()
+/// See format details at: http://www.cvlibs.net/datasets/kitti/eval_odometry.php
+///
+/// @param filename 
 void System::SaveTrajectoryKITTI(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
@@ -471,18 +523,24 @@ void System::SaveTrajectoryKITTI(const string &filename)
     cout << endl << "trajectory saved!" << endl;
 }
 
+/// @brief 获取追踪状态
+/// @return 
 int System::GetTrackingState()
 {
     unique_lock<mutex> lock(mMutexState);
     return mTrackingState;
 }
 
+/// @brief 获取追踪到的地图点
+/// @return 
 vector<MapPoint*> System::GetTrackedMapPoints()
 {
     unique_lock<mutex> lock(mMutexState);
     return mTrackedMapPoints;
 }
 
+/// @brief 获取校畸变后的特征点
+/// @return 
 vector<cv::KeyPoint> System::GetTrackedKeyPointsUn()
 {
     unique_lock<mutex> lock(mMutexState);

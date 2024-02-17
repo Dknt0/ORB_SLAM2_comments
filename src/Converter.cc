@@ -24,6 +24,9 @@
 namespace ORB_SLAM2
 {
 
+/// @brief OpenCV 描述子矩阵转描述子向量
+/// @param Descriptors 
+/// @return 
 std::vector<cv::Mat> Converter::toDescriptorVector(const cv::Mat &Descriptors)
 {
     std::vector<cv::Mat> vDesc;
@@ -34,6 +37,9 @@ std::vector<cv::Mat> Converter::toDescriptorVector(const cv::Mat &Descriptors)
     return vDesc;
 }
 
+/// @brief cv::Mat SE(3) 转 g2o::SE3Quat
+/// @param cvT 
+/// @return 
 g2o::SE3Quat Converter::toSE3Quat(const cv::Mat &cvT)
 {
     Eigen::Matrix<double,3,3> R;
@@ -46,12 +52,18 @@ g2o::SE3Quat Converter::toSE3Quat(const cv::Mat &cvT)
     return g2o::SE3Quat(R,t);
 }
 
+/// @brief g2o::SE3Quat 转 cv::Mat SE(3)
+/// @param SE3 
+/// @return 
 cv::Mat Converter::toCvMat(const g2o::SE3Quat &SE3)
 {
     Eigen::Matrix<double,4,4> eigMat = SE3.to_homogeneous_matrix();
     return toCvMat(eigMat);
 }
 
+/// @brief g2o::Sim3 转 cv::Mat Sim(3)
+/// @param Sim3 
+/// @return 
 cv::Mat Converter::toCvMat(const g2o::Sim3 &Sim3)
 {
     Eigen::Matrix3d eigR = Sim3.rotation().toRotationMatrix();
@@ -60,6 +72,9 @@ cv::Mat Converter::toCvMat(const g2o::Sim3 &Sim3)
     return toCvSE3(s*eigR,eigt);
 }
 
+/// @brief Eigen::Matrix4d 转 cv::Mat 4*4
+/// @param m 
+/// @return 
 cv::Mat Converter::toCvMat(const Eigen::Matrix<double,4,4> &m)
 {
     cv::Mat cvMat(4,4,CV_32F);
@@ -70,6 +85,9 @@ cv::Mat Converter::toCvMat(const Eigen::Matrix<double,4,4> &m)
     return cvMat.clone();
 }
 
+/// @brief Eigen::Matrix3d 转 cv::Mat 3*3
+/// @param m 
+/// @return 
 cv::Mat Converter::toCvMat(const Eigen::Matrix3d &m)
 {
     cv::Mat cvMat(3,3,CV_32F);
@@ -80,6 +98,9 @@ cv::Mat Converter::toCvMat(const Eigen::Matrix3d &m)
     return cvMat.clone();
 }
 
+/// @brief Eigen::Vector3d 转 cv::Mat 3*1
+/// @param m 
+/// @return 
 cv::Mat Converter::toCvMat(const Eigen::Matrix<double,3,1> &m)
 {
     cv::Mat cvMat(3,1,CV_32F);
@@ -89,6 +110,10 @@ cv::Mat Converter::toCvMat(const Eigen::Matrix<double,3,1> &m)
     return cvMat.clone();
 }
 
+/// @brief Eigen::Matrix3d 旋转 Eigen::Vector3d 平移转 cv::Mat SE(3)
+/// @param R 
+/// @param t 
+/// @return 
 cv::Mat Converter::toCvSE3(const Eigen::Matrix<double,3,3> &R, const Eigen::Matrix<double,3,1> &t)
 {
     cv::Mat cvMat = cv::Mat::eye(4,4,CV_32F);
@@ -107,6 +132,9 @@ cv::Mat Converter::toCvSE3(const Eigen::Matrix<double,3,3> &R, const Eigen::Matr
     return cvMat.clone();
 }
 
+/// @brief cv::Mat 3*1 转 Eigen::Vector3d
+/// @param cvVector 
+/// @return 
 Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Mat &cvVector)
 {
     Eigen::Matrix<double,3,1> v;
@@ -115,6 +143,9 @@ Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Mat &cvVector)
     return v;
 }
 
+/// @brief cv::Point3f 转 Eigen::Vector3d
+/// @param cvPoint 
+/// @return 
 Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Point3f &cvPoint)
 {
     Eigen::Matrix<double,3,1> v;
@@ -123,6 +154,9 @@ Eigen::Matrix<double,3,1> Converter::toVector3d(const cv::Point3f &cvPoint)
     return v;
 }
 
+/// @brief cv::Mat SO(3) 转 Eigen::Matrix3d
+/// @param cvMat3 
+/// @return 
 Eigen::Matrix<double,3,3> Converter::toMatrix3d(const cv::Mat &cvMat3)
 {
     Eigen::Matrix<double,3,3> M;
@@ -134,6 +168,9 @@ Eigen::Matrix<double,3,3> Converter::toMatrix3d(const cv::Mat &cvMat3)
     return M;
 }
 
+/// @brief cv::Mat SO(3) 转 std::vector<double> 四元数
+/// @param M 
+/// @return 
 std::vector<float> Converter::toQuaternion(const cv::Mat &M)
 {
     Eigen::Matrix<double,3,3> eigMat = toMatrix3d(M);

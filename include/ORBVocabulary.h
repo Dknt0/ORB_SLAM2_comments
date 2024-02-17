@@ -28,6 +28,7 @@
 namespace ORB_SLAM2
 {
 
+/// @brief 视觉字典
 typedef DBoW2::TemplatedVocabulary<DBoW2::FORB::TDescriptor, DBoW2::FORB>
   ORBVocabulary;
 

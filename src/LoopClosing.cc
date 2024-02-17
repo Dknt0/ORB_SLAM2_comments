@@ -27,7 +27,7 @@
 #include "Optimizer.h"
 
 #include "ORBmatcher.h"
-
+#include <unistd.h>
 #include<mutex>
 #include<thread>
 
@@ -35,6 +35,11 @@
 namespace ORB_SLAM2
 {
 
+/// @brief 构造函数
+/// @param pMap 
+/// @param pDB 
+/// @param pVoc 
+/// @param bFixScale 
 LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, const bool bFixScale):
     mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mpKeyFrameDB(pDB), mpORBVocabulary(pVoc), mpMatchedKF(NULL), mLastLoopKFid(0), mbRunningGBA(false), mbFinishedGBA(true),
@@ -43,17 +48,21 @@ LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, 
     mnCovisibilityConsistencyTh = 3;
 }
 
+/// @brief 设置 Tracking 线程
+/// @param pTracker 
 void LoopClosing::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
 }
 
+/// @brief 设置 LocalMapping 线程
+/// @param pLocalMapper 
 void LoopClosing::SetLocalMapper(LocalMapping *pLocalMapper)
 {
     mpLocalMapper=pLocalMapper;
 }
 
-
+/// @brief 运行  线程函数
 void LoopClosing::Run()
 {
     mbFinished =false;
@@ -81,12 +90,15 @@ void LoopClosing::Run()
         if(CheckFinish())
             break;
 
+        // 延时 5000 us, 给局部优化充足的时间, 闭环检测线程的速度是最慢的
         usleep(5000);
     }
 
     SetFinish();
 }
 
+/// @brief 添加关键帧
+/// @param pKF 
 void LoopClosing::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexLoopQueue);
@@ -94,12 +106,16 @@ void LoopClosing::InsertKeyFrame(KeyFrame *pKF)
         mlpLoopKeyFrameQueue.push_back(pKF);
 }
 
+/// @brief 检查新关键帧
+/// @return 
 bool LoopClosing::CheckNewKeyFrames()
 {
     unique_lock<mutex> lock(mMutexLoopQueue);
     return(!mlpLoopKeyFrameQueue.empty());
 }
 
+/// @brief 闭环检测
+/// @return 
 bool LoopClosing::DetectLoop()
 {
     {
@@ -228,6 +244,8 @@ bool LoopClosing::DetectLoop()
     return false;
 }
 
+/// @brief 计算 Sim3 相似变幻
+/// @return 
 bool LoopClosing::ComputeSim3()
 {
     // For each consistent loop candidate we try to compute a Sim3
@@ -399,6 +417,7 @@ bool LoopClosing::ComputeSim3()
 
 }
 
+/// @brief 闭环校正
 void LoopClosing::CorrectLoop()
 {
     cout << "Loop detected!" << endl;
@@ -572,6 +591,7 @@ void LoopClosing::CorrectLoop()
     mpMatchedKF->AddLoopEdge(mpCurrentKF);
     mpCurrentKF->AddLoopEdge(mpMatchedKF);
 
+    // 开新线程
     // Launch a new thread to perform Global Bundle Adjustment
     mbRunningGBA = true;
     mbFinishedGBA = false;
@@ -584,6 +604,8 @@ void LoopClosing::CorrectLoop()
     mLastLoopKFid = mpCurrentKF->mnId;   
 }
 
+/// @brief 搜寻并融合地图点
+/// @param CorrectedPosesMap 
 void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
 {
     ORBmatcher matcher(0.8);
@@ -612,7 +634,7 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
     }
 }
 
-
+/// @brief 请求重置
 void LoopClosing::RequestReset()
 {
     {
@@ -631,6 +653,7 @@ void LoopClosing::RequestReset()
     }
 }
 
+/// @brief 如果重置被请求，重置
 void LoopClosing::ResetIfRequested()
 {
     unique_lock<mutex> lock(mMutexReset);
@@ -642,6 +665,8 @@ void LoopClosing::ResetIfRequested()
     }
 }
 
+/// @brief 运行全局 BA
+/// @param nLoopKF 
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
 {
     cout << "Starting Global Bundle Adjustment" << endl;
@@ -748,24 +773,30 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     }
 }
 
+/// @brief 请求终止
 void LoopClosing::RequestFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinishRequested = true;
 }
 
+/// @brief 检查终止
+/// @return 
 bool LoopClosing::CheckFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinishRequested;
 }
 
+/// @brief 设置终止
 void LoopClosing::SetFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinished = true;
 }
 
+/// @brief 是否被终止
+/// @return 
 bool LoopClosing::isFinished()
 {
     unique_lock<mutex> lock(mMutexFinish);

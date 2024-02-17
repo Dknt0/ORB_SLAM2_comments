@@ -57,163 +57,137 @@ public:
     Tracking(System* pSys, ORBVocabulary* pVoc, FrameDrawer* pFrameDrawer, MapDrawer* pMapDrawer, Map* pMap,
              KeyFrameDatabase* pKFDB, const string &strSettingPath, const int sensor);
 
-    // Preprocess the input and call Track(). Extract features and performs stereo matching.
-    cv::Mat GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, const double &timestamp);
-    cv::Mat GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const double &timestamp);
-    cv::Mat GrabImageMonocular(const cv::Mat &im, const double &timestamp);
+    /* 追踪函数 */
+
+    cv::Mat GrabImageStereo(const cv::Mat &imRectLeft,const cv::Mat &imRectRight, double timestamp);
+    cv::Mat GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, double timestamp);
+    cv::Mat GrabImageMonocular(const cv::Mat & im, double timestamp);
+
+    /* 指针设置 */
 
     void SetLocalMapper(LocalMapping* pLocalMapper);
     void SetLoopClosing(LoopClosing* pLoopClosing);
     void SetViewer(Viewer* pViewer);
 
-    // Load new settings
+
     // The focal lenght should be similar or scale prediction will fail when projecting points
-    // TODO: Modify MapPoint::PredictScale to take into account focal lenght
+    // @todo: Modify MapPoint::PredictScale to take into account focal lenght
+    
     void ChangeCalibration(const string &strSettingPath);
-
-    // Use this function if you have deactivated local mapping and you only want to localize the camera.
     void InformOnlyTracking(const bool &flag);
-
+    void Reset();
 
 public:
 
-    // Tracking states
+    // 跟踪状态
     enum eTrackingState{
-        SYSTEM_NOT_READY=-1,
-        NO_IMAGES_YET=0,
-        NOT_INITIALIZED=1,
-        OK=2,
-        LOST=3
+        SYSTEM_NOT_READY = -1,  // 系统未就绪  貌似没用到
+        NO_IMAGES_YET    =  0,  // 未收到图片
+        NOT_INITIALIZED  =  1,  // 未初始化
+        OK               =  2,  // 正常
+        LOST             =  3   // 追踪失败
     };
 
-    eTrackingState mState;
-    eTrackingState mLastProcessedState;
+    eTrackingState mState;  // 当前追踪状态
+    eTrackingState mLastProcessedState;  // 上一帧追踪状态
 
-    // Input sensor
-    int mSensor;
+    int mSensor;  // @brief 传感器类型，MONOCULAR=0, STEREO=1, RGBD=2
 
-    // Current Frame
-    Frame mCurrentFrame;
-    cv::Mat mImGray;
+    Frame mCurrentFrame;  // 当前帧
+    cv::Mat mImGray;  // 左图
 
-    // Initialization Variables (Monocular)
-    std::vector<int> mvIniLastMatches;
-    std::vector<int> mvIniMatches;
-    std::vector<cv::Point2f> mvbPrevMatched;
-    std::vector<cv::Point3f> mvIniP3D;
-    Frame mInitialFrame;
+    /* 单目初始化成员变量 */
+    Frame mInitialFrame;  // 初始化参考帧
+    std::vector<int> mvIniMatches;  // 初始化匹配  参考 F KP 匹配到当前 F KP 按参考 F KP 索引
+    std::vector<int> mvIniLastMatches;  // 当前 F KP 匹配到上一 F KP 按当前 F KP 索引，记录上一 F KP 序号   貌似没有用到
+    std::vector<cv::Point2f> mvbPrevMatched;  // 参考 F KP 在当前 F 中预匹配坐标  按参考 F KP 索引
+    std::vector<cv::Point3f> mvIniP3D;  // 三角化 KP 坐标 tw
 
+    /* 帧位姿信息 用于记录轨迹 */
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the reference keyframe for each frame and its relative transformation
-    list<cv::Mat> mlRelativeFramePoses;
-    list<KeyFrame*> mlpReferences;
-    list<double> mlFrameTimes;
-    list<bool> mlbLost;
+    list<cv::Mat> mlRelativeFramePoses;  // F 相对于 KF 位姿 TFfF  按 F 顺序索引
+    list<KeyFrame*> mlpReferences;  // 参考 KF  按 F 顺序索引
+    list<double> mlFrameTimes;  // 帧时间戳
+    list<bool> mlbLost;  // 帧追踪状态
 
-    // True if local mapping is deactivated and we are performing only localization
-    bool mbOnlyTracking;
-
-    void Reset();
+    bool mbOnlyTracking;  // 纯定位模式标志位
 
 protected:
-
-    // Main tracking function. It is independent of the input sensor.
     void Track();
 
-    // Map initialization for stereo and RGB-D
-    void StereoInitialization();
+    bool TrackReferenceKeyFrame();
+    bool TrackWithMotionModel();
+    bool Relocalization();
+    bool TrackLocalMap();
 
-    // Map initialization for monocular
+    void StereoInitialization();
     void MonocularInitialization();
     void CreateInitialMapMonocular();
 
-    void CheckReplacedInLastFrame();
-    bool TrackReferenceKeyFrame();
-    void UpdateLastFrame();
-    bool TrackWithMotionModel();
+    bool NeedNewKeyFrame();
+    void CreateNewKeyFrame();
 
-    bool Relocalization();
+    void CheckReplacedInLastFrame();
+
+    void UpdateLastFrame();
 
     void UpdateLocalMap();
     void UpdateLocalPoints();
     void UpdateLocalKeyFrames();
 
-    bool TrackLocalMap();
     void SearchLocalPoints();
 
-    bool NeedNewKeyFrame();
-    void CreateNewKeyFrame();
+    void FreeInitializer();
 
     // In case of performing only localization, this flag is true when there are no matches to
     // points in the map. Still tracking will continue if there are enough matches with temporal points.
     // In that case we are doing visual odometry. The system will try to do relocalization to recover
     // "zero-drift" localization to the map.
-    bool mbVO;
+    bool mbVO;  // 纯定位模式追踪到 MP 数量不足标志位  这个状态为 false 是正常的定位模式
 
-    //Other Thread Pointers
-    LocalMapping* mpLocalMapper;
-    LoopClosing* mpLoopClosing;
+    /* ORB 中其他对象的指针 */
+    LocalMapping* mpLocalMapper;  // 局部建图
+    LoopClosing* mpLoopClosing;  // 回环检测
+    System* mpSystem;  // 系统
+    Viewer* mpViewer;  // 显示器
+    FrameDrawer* mpFrameDrawer;  // 帧绘制器
+    MapDrawer* mpMapDrawer;  // 地图绘制器
+    Initializer* mpInitializer;  // 单目初始化器
 
-    //ORB
-    ORBextractor* mpORBextractorLeft, *mpORBextractorRight;
-    ORBextractor* mpIniORBextractor;
+    /* ORB 特征提取器 */    
+    ORBextractor* mpORBextractorLeft;  // 左图提取器
+    ORBextractor* mpORBextractorRight;  // 右图提取器
+    ORBextractor* mpIniORBextractor;  // 单目初始化提取器
 
-    //BoW
-    ORBVocabulary* mpORBVocabulary;
-    KeyFrameDatabase* mpKeyFrameDB;
+    /* 数据库 */
+    ORBVocabulary* mpORBVocabulary;  // 视觉字典
+    KeyFrameDatabase* mpKeyFrameDB;  // 关键帧数据库
+    Map* mpMap;  // 地图
 
-    // Initalization (only for monocular)
-    Initializer* mpInitializer;
+    /* 配置参数 */
+    cv::Mat mK;  // 相机内参
+    cv::Mat mDistCoef;  // 相机畸变系数
+    float mbf;  // 双目基线 * fx
+    int mMinFrames;  // 关键帧最小间隔帧数  =0
+    int mMaxFrames;  // 关键帧最大间隔帧数  =fps
+    float mThDepth;  // 远双目点阈值  米
+    float mDepthMapFactor;  // 深度因子  1m 对应的灰度值
+    bool mbRGB;  // 彩色图通道顺序  true-RGB, false-BGR
 
-    //Local Map
-    KeyFrame* mpReferenceKF;
-    std::vector<KeyFrame*> mvpLocalKeyFrames;
-    std::vector<MapPoint*> mvpLocalMapPoints;
-    
-    // System
-    System* mpSystem;
-    
-    //Drawers
-    Viewer* mpViewer;
-    FrameDrawer* mpFrameDrawer;
-    MapDrawer* mpMapDrawer;
+    /* 追踪过程变量 */
+    int mnMatchesInliers;  // 当前帧匹配 KP 数量
+    KeyFrame* mpLastKeyFrame;  // 上一 KF
+    Frame mLastFrame;  // 上一 F
+    unsigned int mnLastKeyFrameId;  // 上一个 KF id
+    unsigned int mnLastRelocFrameId;  // 上一次重定位 F id
+    cv::Mat mVelocity;  // 两帧间的相对位姿 上一帧相对当前帧  Tcccl
 
-    //Map
-    Map* mpMap;
-
-    //Calibration matrix
-    cv::Mat mK;
-    cv::Mat mDistCoef;
-    float mbf;
-
-    //New KeyFrame rules (according to fps)
-    int mMinFrames;
-    int mMaxFrames;
-
-    // Threshold close/far points
-    // Points seen as close by the stereo/RGBD sensor are considered reliable
-    // and inserted from just one frame. Far points requiere a match in two keyframes.
-    float mThDepth;
-
-    // For RGB-D inputs only. For some datasets (e.g. TUM) the depthmap values are scaled.
-    float mDepthMapFactor;
-
-    //Current matches in frame
-    int mnMatchesInliers;
-
-    //Last Frame, KeyFrame and Relocalisation Info
-    KeyFrame* mpLastKeyFrame;
-    Frame mLastFrame;
-    unsigned int mnLastKeyFrameId;
-    unsigned int mnLastRelocFrameId;
-
-    //Motion Model
-    cv::Mat mVelocity;
-
-    //Color order (true RGB, false BGR, ignored if grayscale)
-    bool mbRGB;
-
-    list<MapPoint*> mlpTemporalPoints;
+    KeyFrame* mpReferenceKF;  // 当前参考 KF
+    list<MapPoint*> mlpTemporalPoints;  // 临时 MP
+    // 局部地图
+    std::vector<KeyFrame*> mvpLocalKeyFrames;  // 局部地图 KF
+    std::vector<MapPoint*> mvpLocalMapPoints;  // 局部地图 MP
 };
 
 } //namespace ORB_SLAM

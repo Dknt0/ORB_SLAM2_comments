@@ -23,30 +23,38 @@
 #include "ORBmatcher.h"
 #include "Optimizer.h"
 
-#include<mutex>
+#include <mutex>
 
 namespace ORB_SLAM2
 {
 
+/// @brief 构造函数
+/// @param pMap 
+/// @param bMonocular 
 LocalMapping::LocalMapping(Map *pMap, const float bMonocular):
     mbMonocular(bMonocular), mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true)
 {
 }
 
+/// @brief 设置 LoopClosing 线程
+/// @param pLoopCloser 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
 {
     mpLoopCloser = pLoopCloser;
 }
 
+/// @brief 设置 Tracking 线程
+/// @param pTracker 
 void LocalMapping::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
 }
 
+/// @brief 运行  线程函数
 void LocalMapping::Run()
 {
-
+    // 线程开始
     mbFinished = false;
 
     while(1)
@@ -61,7 +69,7 @@ void LocalMapping::Run()
             ProcessNewKeyFrame();
 
             // Check recent MapPoints
-            MapPointCulling();
+            MapPointCulling(); // 地图点剔除
 
             // Triangulate new MapPoints
             CreateNewMapPoints();
@@ -81,9 +89,10 @@ void LocalMapping::Run()
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
                 // Check redundant local Keyframes
-                KeyFrameCulling();
+                KeyFrameCulling(); // 关键帧剔除
             }
 
+            // 将关键帧加入到闭环检测队列中
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
         else if(Stop())
@@ -105,12 +114,16 @@ void LocalMapping::Run()
         if(CheckFinish())
             break;
 
+        // Tracking 需要在这 3000 us 中插入新关键帧
         usleep(3000);
     }
 
+    // 线程结束
     SetFinish();
 }
 
+/// @brief 插入关键帧
+/// @param pKF 
 void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexNewKFs);
@@ -118,13 +131,15 @@ void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
     mbAbortBA=true;
 }
 
-
+/// @brief 检查新关键帧
+/// @return 
 bool LocalMapping::CheckNewKeyFrames()
 {
     unique_lock<mutex> lock(mMutexNewKFs);
     return(!mlNewKeyFrames.empty());
 }
 
+/// @brief 处理新关键帧
 void LocalMapping::ProcessNewKeyFrame()
 {
     {
@@ -167,6 +182,7 @@ void LocalMapping::ProcessNewKeyFrame()
     mpMap->AddKeyFrame(mpCurrentKeyFrame);
 }
 
+/// @brief 剔除地图点
 void LocalMapping::MapPointCulling()
 {
     // Check Recent Added MapPoints
@@ -185,25 +201,30 @@ void LocalMapping::MapPointCulling()
         MapPoint* pMP = *lit;
         if(pMP->isBad())
         {
-            lit = mlpRecentAddedMapPoints.erase(lit);
+            // 坏地图点
+            lit = mlpRecentAddedMapPoints.erase(lit); // erase 删除当前节点，返回下一节点
         }
         else if(pMP->GetFoundRatio()<0.25f )
         {
+            // 观测率小于0.25的地图点
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=2 && pMP->Observations()<=cnThObs)
         {
+            // 两帧没有被观测到，且观测少于 cnThObs 次
             pMP->SetBadFlag();
             lit = mlpRecentAddedMapPoints.erase(lit);
         }
         else if(((int)nCurrentKFid-(int)pMP->mnFirstKFid)>=3)
+            // 三帧没有被观测到
             lit = mlpRecentAddedMapPoints.erase(lit);
         else
             lit++;
     }
 }
 
+/// @brief 创建新地图点
 void LocalMapping::CreateNewMapPoints()
 {
     // Retrieve neighbor keyframes in covisibility graph
@@ -451,6 +472,7 @@ void LocalMapping::CreateNewMapPoints()
     }
 }
 
+/// @brief 近邻搜索
 void LocalMapping::SearchInNeighbors()
 {
     // Retrieve neighbor keyframes
@@ -533,6 +555,10 @@ void LocalMapping::SearchInNeighbors()
     mpCurrentKeyFrame->UpdateConnections();
 }
 
+/// @brief 计算基础矩阵
+/// @param pKF1 
+/// @param pKF2 
+/// @return 
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
 {
     cv::Mat R1w = pKF1->GetRotation();
@@ -552,6 +578,7 @@ cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
     return K1.t().inv()*t12x*R12*K2.inv();
 }
 
+/// @brief 请求暂停
 void LocalMapping::RequestStop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -560,6 +587,8 @@ void LocalMapping::RequestStop()
     mbAbortBA = true;
 }
 
+/// @brief 暂停
+/// @return 
 bool LocalMapping::Stop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -573,18 +602,23 @@ bool LocalMapping::Stop()
     return false;
 }
 
+/// @brief 是否已暂停
+/// @return 
 bool LocalMapping::isStopped()
 {
     unique_lock<mutex> lock(mMutexStop);
     return mbStopped;
 }
 
+/// @brief 暂停被请求
+/// @return 
 bool LocalMapping::stopRequested()
 {
     unique_lock<mutex> lock(mMutexStop);
     return mbStopRequested;
 }
 
+/// @brief 释放
 void LocalMapping::Release()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -600,18 +634,25 @@ void LocalMapping::Release()
     cout << "Local Mapping RELEASE" << endl;
 }
 
+/// @brief 接受关键帧
+/// @return 
 bool LocalMapping::AcceptKeyFrames()
 {
     unique_lock<mutex> lock(mMutexAccept);
     return mbAcceptKeyFrames;
 }
 
+/// @brief 设置接受关键帧标志位
+/// @param flag 
 void LocalMapping::SetAcceptKeyFrames(bool flag)
 {
     unique_lock<mutex> lock(mMutexAccept);
     mbAcceptKeyFrames=flag;
 }
 
+/// @brief 设置不暂停标志位
+/// @param flag 
+/// @return 
 bool LocalMapping::SetNotStop(bool flag)
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -624,11 +665,13 @@ bool LocalMapping::SetNotStop(bool flag)
     return true;
 }
 
+/// @brief 中断 BA
 void LocalMapping::InterruptBA()
 {
     mbAbortBA = true;
 }
 
+/// @brief 关键帧剔除
 void LocalMapping::KeyFrameCulling()
 {
     // Check redundant keyframes (only local keyframes)
@@ -695,13 +738,17 @@ void LocalMapping::KeyFrameCulling()
     }
 }
 
+/// @brief 向量转反对称矩阵  hat 变换
+/// @param v 
+/// @return 
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v)
 {
-    return (cv::Mat_<float>(3,3) <<             0, -v.at<float>(2), v.at<float>(1),
-            v.at<float>(2),               0,-v.at<float>(0),
-            -v.at<float>(1),  v.at<float>(0),              0);
+    return (cv::Mat_<float>(3,3) << 0, -v.at<float>(2), v.at<float>(1),
+                                    v.at<float>(2), 0,-v.at<float>(0),
+                                   -v.at<float>(1), v.at<float>(0), 0);
 }
 
+/// @brief 请求重置
 void LocalMapping::RequestReset()
 {
     {
@@ -720,6 +767,7 @@ void LocalMapping::RequestReset()
     }
 }
 
+/// @brief 如果重置被请求，重置线程
 void LocalMapping::ResetIfRequested()
 {
     unique_lock<mutex> lock(mMutexReset);
@@ -731,18 +779,22 @@ void LocalMapping::ResetIfRequested()
     }
 }
 
+/// @brief 请求终止
 void LocalMapping::RequestFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinishRequested = true;
 }
 
+/// @brief 终止检测
+/// @return 
 bool LocalMapping::CheckFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinishRequested;
 }
 
+/// @brief 设置中止
 void LocalMapping::SetFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
@@ -751,6 +803,8 @@ void LocalMapping::SetFinish()
     mbStopped = true;
 }
 
+/// @brief 是否已经被中值
+/// @return 
 bool LocalMapping::isFinished()
 {
     unique_lock<mutex> lock(mMutexFinish);

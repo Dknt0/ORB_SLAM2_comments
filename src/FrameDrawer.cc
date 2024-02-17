@@ -29,6 +29,8 @@
 namespace ORB_SLAM2
 {
 
+/// @brief 帧绘制器构造函数
+/// @param pMap 
 FrameDrawer::FrameDrawer(Map* pMap):mpMap(pMap)
 {
     mState=Tracking::SYSTEM_NOT_READY;

@@ -25,15 +25,17 @@
 #include "Optimizer.h"
 #include "ORBmatcher.h"
 
-#include<thread>
+#include <thread>
 
 namespace ORB_SLAM2
 {
-
-Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iterations)
+/// @brief 构造函数
+/// @param ReferenceFrame 参考帧
+/// @param sigma 测量标准差
+/// @param iterations 最大迭代次数
+Initializer::Initializer(const Frame & ReferenceFrame, float sigma, int iterations)
 {
     mK = ReferenceFrame.mK.clone();
-
     mvKeys1 = ReferenceFrame.mvKeysUn;
 
     mSigma = sigma;
@@ -41,8 +43,20 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
     mMaxIterations = iterations;
 }
 
-bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatches12, cv::Mat &R21, cv::Mat &t21,
-                             vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
+/// @brief 单目初始化  主要接口
+/// @param CurrentFrame 当前帧 F2
+/// @param vMatches12 初始化匹配 参考 F KP 匹配到当前 F KP 按参考 F KP 索引
+/// @param R21 姿态  输出
+/// @param t21 位置  输出
+/// @param vP3D 地图点坐标  输出
+/// @param vbTriangulated 地图点是成功三角化标志位 输出
+/// @return 初始化是否成功
+bool Initializer::Initialize(const Frame & CurrentFrame,
+                                const vector<int> &vMatches12,
+                                cv::Mat &R21,
+                                cv::Mat &t21,
+                                vector<cv::Point3f> &vP3D,
+                                vector<bool> &vbTriangulated)
 {
     // Fill structures with current keypoints and matches with reference frame
     // Reference Frame: 1, Current Frame: 2
@@ -51,6 +65,8 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     mvMatches12.clear();
     mvMatches12.reserve(mvKeys2.size());
     mvbMatched1.resize(mvKeys1.size());
+
+    // 遍历匹配对，填充成员变量
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
         if(vMatches12[i]>=0)
@@ -62,56 +78,35 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
             mvbMatched1[i]=false;
     }
 
-    const int N = mvMatches12.size();
+    SampleForRansec();  // RANSAC 采样
 
-    // Indices for minimum set selection
-    vector<size_t> vAllIndices;
-    vAllIndices.reserve(N);
-    vector<size_t> vAvailableIndices;
-
-    for(int i=0; i<N; i++)
-    {
-        vAllIndices.push_back(i);
-    }
-
-    // Generate sets of 8 points for each RANSAC iteration
-    mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
-
-    DUtils::Random::SeedRandOnce(0);
-
-    for(int it=0; it<mMaxIterations; it++)
-    {
-        vAvailableIndices = vAllIndices;
-
-        // Select a minimum set
-        for(size_t j=0; j<8; j++)
-        {
-            int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
-            int idx = vAvailableIndices[randi];
-
-            mvSets[it][j] = idx;
-
-            vAvailableIndices[randi] = vAvailableIndices.back();
-            vAvailableIndices.pop_back();
-        }
-    }
+    /* 2.双线程计算基础矩阵和单应矩阵 */
 
     // Launch threads to compute in parallel a fundamental matrix and a homography
-    vector<bool> vbMatchesInliersH, vbMatchesInliersF;
-    float SH, SF;
-    cv::Mat H, F;
+    vector<bool> vbMatchesInliersH;  // H 匹配内点
+    vector<bool> vbMatchesInliersF;  // F 匹配内点
+    float SH;  // H 得分
+    float SF;  // F 得分
+    cv::Mat H;  // H
+    cv::Mat F;  // F
 
+    // 双线程
     thread threadH(&Initializer::FindHomography,this,ref(vbMatchesInliersH), ref(SH), ref(H));
     thread threadF(&Initializer::FindFundamental,this,ref(vbMatchesInliersF), ref(SF), ref(F));
 
     // Wait until both threads have finished
+    // 阻塞等待
     threadH.join();
     threadF.join();
+    
+    /* 3.按照得分比例选择 H 或 F */
 
     // Compute ratio of scores
+    // 得分比例
     float RH = SH/(SH+SF);
 
     // Try to reconstruct from homography or fundamental depending on the ratio (0.40-0.45)
+    // 三维重建
     if(RH>0.40)
         return ReconstructH(vbMatchesInliersH,H,mK,R21,t21,vP3D,vbTriangulated,1.0,50);
     else //if(pF_HF>0.6)
@@ -120,34 +115,83 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     return false;
 }
 
+///////////////////////////////////////////////////////////////////////////////////// RANSAC 采样
 
-void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
+/// @brief RANSAC 采样  只采样不计算
+void Initializer::SampleForRansec()
+{
+    const int N = mvMatches12.size();  // 有效匹配总数
+
+    // Indices for minimum set selection
+    std::vector<size_t> vAllIndices;  // 有效序号集
+    vAllIndices.reserve(N);
+    std::vector<size_t> vAvailableIndices;  // 有效序号集，用于采样
+    for(int i=0; i<N; i++)
+        vAllIndices.push_back(i);
+
+    // Generate sets of 8 points for each RANSAC iteration
+    // RANSAC 最小样本 - 8 对
+    mvSets = std::vector<std::vector<size_t>>(mMaxIterations,vector<size_t>(8,0));
+
+    DUtils::Random::SeedRandOnce(0);  // 随机数种子
+    // 采样 200 次
+    for(int it = 0; it < mMaxIterations; it++) {
+        vAvailableIndices = vAllIndices;
+        // 每次 8 个点对
+        // Select a minimum set
+        for(size_t j=0; j<8; j++) {
+            int randi = DUtils::Random::RandomInt(0,vAvailableIndices.size()-1);
+            int idx = vAvailableIndices[randi];
+
+            mvSets[it][j] = idx;
+            
+            // 清除样本，防止重复采样
+            vAvailableIndices[randi] = vAvailableIndices.back();
+            vAvailableIndices.pop_back();
+        }
+    }
+
+}
+
+///////////////////////////////////////////////////////////////////////////////////// 单应矩阵相关
+
+/// @brief 计算单应矩阵
+/// @param vbMatchesInliers 内点标志位
+/// @param score 重投影误差 输出
+/// @param H21 单应矩阵 输出
+void Initializer::FindHomography(std::vector<bool> &vbMatchesInliers, float &score, cv::Mat &H21)
 {
     // Number of putative matches
-    const int N = mvMatches12.size();
+    const int N = mvMatches12.size();  // 有效匹配总数
 
     // Normalize coordinates
-    vector<cv::Point2f> vPn1, vPn2;
-    cv::Mat T1, T2;
+    // 坐标归一化
+    vector<cv::Point2f> vPn1;  // 归一化 F1 KP
+    vector<cv::Point2f> vPn2;  // 归一化 F2 KP
+    cv::Mat T1;  // F1 归一化变换矩阵
+    cv::Mat T2;  // F2 归一化变换矩阵
     Normalize(mvKeys1,vPn1, T1);
     Normalize(mvKeys2,vPn2, T2);
-    cv::Mat T2inv = T2.inv();
+    cv::Mat T2inv = T2.inv();  // F2 归一化变换 逆矩阵
 
     // Best Results variables
-    score = 0.0;
-    vbMatchesInliers = vector<bool>(N,false);
+    score = 0.0;  // 最佳得分
+    vbMatchesInliers = vector<bool>(N,false);  // 最佳内点标志位
 
     // Iteration variables
-    vector<cv::Point2f> vPn1i(8);
-    vector<cv::Point2f> vPn2i(8);
-    cv::Mat H21i, H12i;
+    vector<cv::Point2f> vPn1i(8);  // F1 KP Sample
+    vector<cv::Point2f> vPn2i(8);  // F2 KP Sample
+    cv::Mat H21i;  // Current H21
+    cv::Mat H12i;  // Current H12
     vector<bool> vbCurrentInliers(N,false);
     float currentScore;
 
     // Perform all RANSAC iterations and save the solution with highest score
+    // 执行所有 RANSAC 迭代，保留得分最高的结果
     for(int it=0; it<mMaxIterations; it++)
     {
         // Select a minimum set
+        // 取样本点对
         for(size_t j=0; j<8; j++)
         {
             int idx = mvSets[it][j];
@@ -156,12 +200,13 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
             vPn2i[j] = vPn2[mvMatches12[idx].second];
         }
 
-        cv::Mat Hn = ComputeH21(vPn1i,vPn2i);
-        H21i = T2inv*Hn*T1;
+        cv::Mat Hn = ComputeH21(vPn1i,vPn2i);  // 计算单应矩阵
+        H21i = T2inv*Hn*T1;  // 尺度缩放
         H12i = H21i.inv();
 
-        currentScore = CheckHomography(H21i, H12i, vbCurrentInliers, mSigma);
+        currentScore = CheckHomography(H21i, H12i, vbCurrentInliers, mSigma);  // 计算得分
 
+        // 记录最佳得分
         if(currentScore>score)
         {
             H21 = H21i.clone();
@@ -171,64 +216,18 @@ void Initializer::FindHomography(vector<bool> &vbMatchesInliers, float &score, c
     }
 }
 
-
-void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, cv::Mat &F21)
-{
-    // Number of putative matches
-    const int N = vbMatchesInliers.size();
-
-    // Normalize coordinates
-    vector<cv::Point2f> vPn1, vPn2;
-    cv::Mat T1, T2;
-    Normalize(mvKeys1,vPn1, T1);
-    Normalize(mvKeys2,vPn2, T2);
-    cv::Mat T2t = T2.t();
-
-    // Best Results variables
-    score = 0.0;
-    vbMatchesInliers = vector<bool>(N,false);
-
-    // Iteration variables
-    vector<cv::Point2f> vPn1i(8);
-    vector<cv::Point2f> vPn2i(8);
-    cv::Mat F21i;
-    vector<bool> vbCurrentInliers(N,false);
-    float currentScore;
-
-    // Perform all RANSAC iterations and save the solution with highest score
-    for(int it=0; it<mMaxIterations; it++)
-    {
-        // Select a minimum set
-        for(int j=0; j<8; j++)
-        {
-            int idx = mvSets[it][j];
-
-            vPn1i[j] = vPn1[mvMatches12[idx].first];
-            vPn2i[j] = vPn2[mvMatches12[idx].second];
-        }
-
-        cv::Mat Fn = ComputeF21(vPn1i,vPn2i);
-
-        F21i = T2t*Fn*T1;
-
-        currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);
-
-        if(currentScore>score)
-        {
-            F21 = F21i.clone();
-            vbMatchesInliers = vbCurrentInliers;
-            score = currentScore;
-        }
-    }
-}
-
-
+/// @brief DLT+SVD 8 点求解单应矩阵
+/// @param vP1 F1 归一化特征点
+/// @param vP2 F2 归一化特征点
+/// @return H21
 cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv::Point2f> &vP2)
 {
-    const int N = vP1.size();
+    // 单应矩阵只需要 4 对匹配点，但 RANSAC 采样了八对，这里还属用了 8 对点
+    const int N = vP1.size();  // 点对总数 =8
 
-    cv::Mat A(2*N,9,CV_32F);
+    cv::Mat A(2*N,9,CV_32F);  // 增广矩阵，最后一列为常数项
 
+    // 填充 A
     for(int i=0; i<N; i++)
     {
         const float u1 = vP1[i].x;
@@ -257,54 +256,28 @@ cv::Mat Initializer::ComputeH21(const vector<cv::Point2f> &vP1, const vector<cv:
         A.at<float>(2*i+1,8) = -u2;
 
     }
+    
+    // Bh=d    DLT 法  h 为单应矩阵
+    // A = [B -d]  q = [h' 1]'
+    // Aq=0
+    // A = UDV'
 
     cv::Mat u,w,vt;
+    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);  // SVD 分解
 
-    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
-
+    // 最小奇异值对应的特征向量 (9*1) 是方程组的近似解   单应矩阵尺度不定，所以可以直接返回
     return vt.row(8).reshape(0, 3);
 }
 
-cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::Point2f> &vP2)
-{
-    const int N = vP1.size();
-
-    cv::Mat A(N,9,CV_32F);
-
-    for(int i=0; i<N; i++)
-    {
-        const float u1 = vP1[i].x;
-        const float v1 = vP1[i].y;
-        const float u2 = vP2[i].x;
-        const float v2 = vP2[i].y;
-
-        A.at<float>(i,0) = u2*u1;
-        A.at<float>(i,1) = u2*v1;
-        A.at<float>(i,2) = u2;
-        A.at<float>(i,3) = v2*u1;
-        A.at<float>(i,4) = v2*v1;
-        A.at<float>(i,5) = v2;
-        A.at<float>(i,6) = u1;
-        A.at<float>(i,7) = v1;
-        A.at<float>(i,8) = 1;
-    }
-
-    cv::Mat u,w,vt;
-
-    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
-
-    cv::Mat Fpre = vt.row(8).reshape(0, 3);
-
-    cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
-
-    w.at<float>(2)=0;
-
-    return  u*cv::Mat::diag(w)*vt;
-}
-
+/// @brief 检查单应矩阵，计算得分
+/// @param H21 单应矩阵 H21
+/// @param H12 单应矩阵 H12
+/// @param vbMatchesInliers 内点标志位
+/// @param sigma 标准差
+/// @return 得分
 float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vector<bool> &vbMatchesInliers, float sigma)
 {   
-    const int N = mvMatches12.size();
+    const int N = mvMatches12.size();  // 有效匹配总数
 
     const float h11 = H21.at<float>(0,0);
     const float h12 = H21.at<float>(0,1);
@@ -328,11 +301,11 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
 
     vbMatchesInliers.resize(N);
 
-    float score = 0;
+    float score = 0;  // 得分
 
-    const float th = 5.991;
+    const float th = 5.991;  // 外点阈值
 
-    const float invSigmaSquare = 1.0/(sigma*sigma);
+    const float invSigmaSquare = 1.0/(sigma*sigma);  // 逆方差
 
     for(int i=0; i<N; i++)
     {
@@ -349,18 +322,18 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
         // Reprojection error in first image
         // x2in1 = H12*x2
 
-        const float w2in1inv = 1.0/(h31inv*u2+h32inv*v2+h33inv);
-        const float u2in1 = (h11inv*u2+h12inv*v2+h13inv)*w2in1inv;
-        const float v2in1 = (h21inv*u2+h22inv*v2+h23inv)*w2in1inv;
+        const float w2in1inv = 1.0/(h31inv*u2 + h32inv*v2 + h33inv);
+        const float u2in1 = (h11inv*u2 + h12inv*v2 + h13inv)*w2in1inv;
+        const float v2in1 = (h21inv*u2 + h22inv*v2 + h23inv)*w2in1inv;
 
-        const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);
+        const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);  // 重投影误差平方
 
-        const float chiSquare1 = squareDist1*invSigmaSquare;
+        const float chiSquare1 = squareDist1*invSigmaSquare;  // 归一化误差平方
 
         if(chiSquare1>th)
             bIn = false;
         else
-            score += th - chiSquare1;
+            score += th - chiSquare1;  // 这里是得分，不是误差
 
         // Reprojection error in second image
         // x1in2 = H21*x1
@@ -387,222 +360,47 @@ float Initializer::CheckHomography(const cv::Mat &H21, const cv::Mat &H12, vecto
     return score;
 }
 
-float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesInliers, float sigma)
+/// @brief 从单应矩阵分解姿态和位置
+/// @param vbMatchesInliers 内点标志位
+/// @param H21 单应矩阵
+/// @param K 内参
+/// @param R21 姿态
+/// @param t21 位置
+/// @param vP3D 三角化空间点坐标
+/// @param vbTriangulated 三角化标志位
+/// @param minParallax 最小视差角
+/// @param minTriangulated 最少三角化阈值
+/// @return 是否成功
+bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers,
+                                cv::Mat &H21,
+                                cv::Mat &K,
+                                cv::Mat &R21,
+                                cv::Mat &t21,
+                                vector<cv::Point3f> &vP3D,
+                                vector<bool> &vbTriangulated,
+                                float minParallax,
+                                int minTriangulated)
 {
-    const int N = mvMatches12.size();
+    // 参考论文 Faugeras et al. Motion and structure from motion in a piecewise planar environment. International Journal of Pattern Recognition and Artificial Intelligence, 1988
 
-    const float f11 = F21.at<float>(0,0);
-    const float f12 = F21.at<float>(0,1);
-    const float f13 = F21.at<float>(0,2);
-    const float f21 = F21.at<float>(1,0);
-    const float f22 = F21.at<float>(1,1);
-    const float f23 = F21.at<float>(1,2);
-    const float f31 = F21.at<float>(2,0);
-    const float f32 = F21.at<float>(2,1);
-    const float f33 = F21.at<float>(2,2);
-
-    vbMatchesInliers.resize(N);
-
-    float score = 0;
-
-    const float th = 3.841;
-    const float thScore = 5.991;
-
-    const float invSigmaSquare = 1.0/(sigma*sigma);
-
-    for(int i=0; i<N; i++)
-    {
-        bool bIn = true;
-
-        const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
-        const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
-
-        const float u1 = kp1.pt.x;
-        const float v1 = kp1.pt.y;
-        const float u2 = kp2.pt.x;
-        const float v2 = kp2.pt.y;
-
-        // Reprojection error in second image
-        // l2=F21x1=(a2,b2,c2)
-
-        const float a2 = f11*u1+f12*v1+f13;
-        const float b2 = f21*u1+f22*v1+f23;
-        const float c2 = f31*u1+f32*v1+f33;
-
-        const float num2 = a2*u2+b2*v2+c2;
-
-        const float squareDist1 = num2*num2/(a2*a2+b2*b2);
-
-        const float chiSquare1 = squareDist1*invSigmaSquare;
-
-        if(chiSquare1>th)
-            bIn = false;
-        else
-            score += thScore - chiSquare1;
-
-        // Reprojection error in second image
-        // l1 =x2tF21=(a1,b1,c1)
-
-        const float a1 = f11*u2+f21*v2+f31;
-        const float b1 = f12*u2+f22*v2+f32;
-        const float c1 = f13*u2+f23*v2+f33;
-
-        const float num1 = a1*u1+b1*v1+c1;
-
-        const float squareDist2 = num1*num1/(a1*a1+b1*b1);
-
-        const float chiSquare2 = squareDist2*invSigmaSquare;
-
-        if(chiSquare2>th)
-            bIn = false;
-        else
-            score += thScore - chiSquare2;
-
-        if(bIn)
-            vbMatchesInliers[i]=true;
-        else
-            vbMatchesInliers[i]=false;
-    }
-
-    return score;
-}
-
-bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv::Mat &K,
-                            cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
-{
     int N=0;
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
         if(vbMatchesInliers[i])
             N++;
-
-    // Compute Essential Matrix from Fundamental Matrix
-    cv::Mat E21 = K.t()*F21*K;
-
-    cv::Mat R1, R2, t;
-
-    // Recover the 4 motion hypotheses
-    DecomposeE(E21,R1,R2,t);  
-
-    cv::Mat t1=t;
-    cv::Mat t2=-t;
-
-    // Reconstruct with the 4 hyphoteses and check
-    vector<cv::Point3f> vP3D1, vP3D2, vP3D3, vP3D4;
-    vector<bool> vbTriangulated1,vbTriangulated2,vbTriangulated3, vbTriangulated4;
-    float parallax1,parallax2, parallax3, parallax4;
-
-    int nGood1 = CheckRT(R1,t1,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D1, 4.0*mSigma2, vbTriangulated1, parallax1);
-    int nGood2 = CheckRT(R2,t1,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D2, 4.0*mSigma2, vbTriangulated2, parallax2);
-    int nGood3 = CheckRT(R1,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D3, 4.0*mSigma2, vbTriangulated3, parallax3);
-    int nGood4 = CheckRT(R2,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D4, 4.0*mSigma2, vbTriangulated4, parallax4);
-
-    int maxGood = max(nGood1,max(nGood2,max(nGood3,nGood4)));
-
-    R21 = cv::Mat();
-    t21 = cv::Mat();
-
-    int nMinGood = max(static_cast<int>(0.9*N),minTriangulated);
-
-    int nsimilar = 0;
-    if(nGood1>0.7*maxGood)
-        nsimilar++;
-    if(nGood2>0.7*maxGood)
-        nsimilar++;
-    if(nGood3>0.7*maxGood)
-        nsimilar++;
-    if(nGood4>0.7*maxGood)
-        nsimilar++;
-
-    // If there is not a clear winner or not enough triangulated points reject initialization
-    if(maxGood<nMinGood || nsimilar>1)
-    {
-        return false;
-    }
-
-    // If best reconstruction has enough parallax initialize
-    if(maxGood==nGood1)
-    {
-        if(parallax1>minParallax)
-        {
-            vP3D = vP3D1;
-            vbTriangulated = vbTriangulated1;
-
-            R1.copyTo(R21);
-            t1.copyTo(t21);
-            return true;
-        }
-    }else if(maxGood==nGood2)
-    {
-        if(parallax2>minParallax)
-        {
-            vP3D = vP3D2;
-            vbTriangulated = vbTriangulated2;
-
-            R2.copyTo(R21);
-            t1.copyTo(t21);
-            return true;
-        }
-    }else if(maxGood==nGood3)
-    {
-        if(parallax3>minParallax)
-        {
-            vP3D = vP3D3;
-            vbTriangulated = vbTriangulated3;
-
-            R1.copyTo(R21);
-            t2.copyTo(t21);
-            return true;
-        }
-    }else if(maxGood==nGood4)
-    {
-        if(parallax4>minParallax)
-        {
-            vP3D = vP3D4;
-            vbTriangulated = vbTriangulated4;
-
-            R2.copyTo(R21);
-            t2.copyTo(t21);
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
-                      cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
-{
-    int N=0;
-    for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
-        if(vbMatchesInliers[i])
-            N++;
-
-    // We recover 8 motion hypotheses using the method of Faugeras et al.
-    // Motion and structure from motion in a piecewise planar environment.
-    // International Journal of Pattern Recognition and Artificial Intelligence, 1988
-
+    
     cv::Mat invK = K.inv();
     cv::Mat A = invK*H21*K;
 
     cv::Mat U,w,Vt,V;
     cv::SVD::compute(A,w,U,Vt,cv::SVD::FULL_UV);
     V=Vt.t();
-
-    float s = cv::determinant(U)*cv::determinant(Vt);
-
+    
     float d1 = w.at<float>(0);
     float d2 = w.at<float>(1);
     float d3 = w.at<float>(2);
 
-    if(d1/d2<1.00001 || d2/d3<1.00001)
-    {
+    if (d1/d2<1.00001 || d2/d3<1.00001)
         return false;
-    }
-
-    vector<cv::Mat> vR, vt, vn;
-    vR.reserve(8);
-    vt.reserve(8);
-    vn.reserve(8);
 
     //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
     float aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
@@ -615,6 +413,13 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
 
     float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);
     float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};
+
+    float s = cv::determinant(U)*cv::determinant(Vt);
+    vector<cv::Mat> vR, vt, vn;
+    vR.reserve(8);
+    vt.reserve(8);
+    vn.reserve(8);
+
 
     for(int i=0; i<4; i++)
     {
@@ -731,41 +536,333 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     return false;
 }
 
-void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &P1, const cv::Mat &P2, cv::Mat &x3D)
+///////////////////////////////////////////////////////////////////////////////////// 基础矩阵相关
+
+/// @brief 计算基础矩阵
+/// @param vbMatchesInliers 内点标志位
+/// @param score 重投影误差
+/// @param F21 基础矩阵
+void Initializer::FindFundamental(vector<bool> &vbMatchesInliers, float &score, cv::Mat &F21)
 {
-    cv::Mat A(4,4,CV_32F);
+    // Number of putative matches
+    const int N = vbMatchesInliers.size();  // 有效匹配总数
 
-    A.row(0) = kp1.pt.x*P1.row(2)-P1.row(0);
-    A.row(1) = kp1.pt.y*P1.row(2)-P1.row(1);
-    A.row(2) = kp2.pt.x*P2.row(2)-P2.row(0);
-    A.row(3) = kp2.pt.y*P2.row(2)-P2.row(1);
+    // Normalize coordinates
+    vector<cv::Point2f> vPn1;  // 归一化 F1 KP
+    vector<cv::Point2f> vPn2;  // 归一化 F2 KP
+    cv::Mat T1;  // F1 归一化变换矩阵
+    cv::Mat T2;  // F2 归一化变换矩阵
+    Normalize(mvKeys1,vPn1, T1);
+    Normalize(mvKeys2,vPn2, T2);
+    cv::Mat T2t = T2.t();  // F2 归一化变换 逆矩阵
 
-    cv::Mat u,w,vt;
-    cv::SVD::compute(A,w,u,vt,cv::SVD::MODIFY_A| cv::SVD::FULL_UV);
-    x3D = vt.row(3).t();
-    x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
+    // Best Results variables
+    score = 0.0;
+    vbMatchesInliers = vector<bool>(N,false);
+
+    // Iteration variables
+    vector<cv::Point2f> vPn1i(8);
+    vector<cv::Point2f> vPn2i(8);
+    cv::Mat F21i;  // Current H21
+    vector<bool> vbCurrentInliers(N,false);
+    float currentScore;
+
+    // Perform all RANSAC iterations and save the solution with highest score
+    // 执行所有 RANSAC 迭代，保留得分最高的结果
+    for(int it=0; it<mMaxIterations; it++)
+    {
+        // Select a minimum set
+        // 取样本点对
+        for(int j=0; j<8; j++)
+        {
+            int idx = mvSets[it][j];
+
+            vPn1i[j] = vPn1[mvMatches12[idx].first];
+            vPn2i[j] = vPn2[mvMatches12[idx].second];
+        }
+
+        cv::Mat Fn = ComputeF21(vPn1i,vPn2i);  // 计算本质矩阵
+
+        F21i = T2t*Fn*T1;  // 恢复尺度
+
+        currentScore = CheckFundamental(F21i, vbCurrentInliers, mSigma);  // 计算得分
+        
+        // 记录最佳得分
+        if(currentScore>score)
+        {
+            F21 = F21i.clone();
+            vbMatchesInliers = vbCurrentInliers;
+            score = currentScore;
+        }
+    }
 }
 
+/// @brief DLT+SVD 计算基础矩阵
+/// @param vP1 当前 F 归一化特征点
+/// @param vP2 参考 F 归一化特征点
+/// @return 
+cv::Mat Initializer::ComputeF21(const vector<cv::Point2f> &vP1,const vector<cv::Point2f> &vP2)
+{
+    const int N = vP1.size();  // 8
+
+    cv::Mat A(N,9,CV_32F);
+
+    for(int i=0; i<N; i++)
+    {
+        const float u1 = vP1[i].x;
+        const float v1 = vP1[i].y;
+        const float u2 = vP2[i].x;
+        const float v2 = vP2[i].y;
+
+        A.at<float>(i,0) = u2*u1;
+        A.at<float>(i,1) = u2*v1;
+        A.at<float>(i,2) = u2;
+        A.at<float>(i,3) = v2*u1;
+        A.at<float>(i,4) = v2*v1;
+        A.at<float>(i,5) = v2;
+        A.at<float>(i,6) = u1;
+        A.at<float>(i,7) = v1;
+        A.at<float>(i,8) = 1;
+    }
+
+    cv::Mat u,w,vt;
+
+    // F 流形上奇异值应为 (a, a, 0) 的形式，但由于误差，最小奇异值不精确为 0
+    cv::SVDecomp(A,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
+
+    cv::Mat Fpre = vt.row(8).reshape(0, 3);  // 最小奇异值
+
+    // 对 F 进行 SFD 分解
+    cv::SVDecomp(Fpre,w,u,vt,cv::SVD::MODIFY_A | cv::SVD::FULL_UV);
+    w.at<float>(2)=0;  // 将最小奇异值设置为 0，即将 Fpre 投影到 F 流形上
+    
+    return  u*cv::Mat::diag(w)*vt;  // 恢复 F
+}
+
+/// @brief 检查基础矩阵，计算得分
+/// @param F21 基础矩阵
+/// @param vbMatchesInliers 内点标志位
+/// @param sigma 标准差
+/// @return 
+float Initializer::CheckFundamental(const cv::Mat &F21, vector<bool> &vbMatchesInliers, float sigma)
+{
+    const int N = mvMatches12.size();
+
+    const float f11 = F21.at<float>(0,0);
+    const float f12 = F21.at<float>(0,1);
+    const float f13 = F21.at<float>(0,2);
+    const float f21 = F21.at<float>(1,0);
+    const float f22 = F21.at<float>(1,1);
+    const float f23 = F21.at<float>(1,2);
+    const float f31 = F21.at<float>(2,0);
+    const float f32 = F21.at<float>(2,1);
+    const float f33 = F21.at<float>(2,2);
+
+    vbMatchesInliers.resize(N);
+
+    float score = 0;
+
+    const float th = 3.841;
+    const float thScore = 5.991;
+
+    const float invSigmaSquare = 1.0/(sigma*sigma);
+
+    for(int i=0; i<N; i++)
+    {
+        bool bIn = true;
+
+        const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
+        const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
+
+        const float u1 = kp1.pt.x;
+        const float v1 = kp1.pt.y;
+        const float u2 = kp2.pt.x;
+        const float v2 = kp2.pt.y;
+
+        // Reprojection error in second image
+        // l2=F21x1=(a2,b2,c2)
+
+        const float a2 = f11*u1+f12*v1+f13;
+        const float b2 = f21*u1+f22*v1+f23;
+        const float c2 = f31*u1+f32*v1+f33;
+
+        const float num2 = a2*u2+b2*v2+c2;  // x2'F21x1
+
+        const float squareDist1 = num2*num2/(a2*a2+b2*b2);  // 尺度归一化误差
+
+        const float chiSquare1 = squareDist1*invSigmaSquare;  // 归一化误差平方
+
+        if(chiSquare1>th)
+            bIn = false;
+        else
+            score += thScore - chiSquare1;
+
+        // Reprojection error in first image
+        // l1 =x2tF21=(a1,b1,c1)
+
+        const float a1 = f11*u2+f21*v2+f31;
+        const float b1 = f12*u2+f22*v2+f32;
+        const float c1 = f13*u2+f23*v2+f33;
+
+        const float num1 = a1*u1+b1*v1+c1;
+
+        const float squareDist2 = num1*num1/(a1*a1+b1*b1);
+
+        const float chiSquare2 = squareDist2*invSigmaSquare;
+
+        if(chiSquare2>th)
+            bIn = false;
+        else
+            score += thScore - chiSquare2;
+
+        if(bIn)
+            vbMatchesInliers[i]=true;
+        else
+            vbMatchesInliers[i]=false;
+    }
+
+    return score;
+}
+
+/// @brief 从基础矩阵分解位置和姿态
+/// @param vbMatchesInliers 内点标志位
+/// @param F21 基础矩阵
+/// @param K 内参
+/// @param R21 姿态
+/// @param t21 位置
+/// @param vP3D 三角化点坐标
+/// @param vbTriangulated 三角化成功标志位
+/// @param minParallax 最小视差角
+/// @param minTriangulated 最少三角化阈值
+/// @return 是否成功
+bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv::Mat &K,
+                            cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
+{
+    int N=0;
+    for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
+        if(vbMatchesInliers[i])
+            N++;
+
+    // Compute Essential Matrix from Fundamental Matrix
+    cv::Mat E21 = K.t()*F21*K;
+
+    cv::Mat R1, R2, t;
+
+    // Recover the 4 motion hypotheses
+    DecomposeE(E21,R1,R2,t);  
+
+    cv::Mat t1=t;
+    cv::Mat t2=-t;
+
+    // Reconstruct with the 4 hyphoteses and check
+    vector<cv::Point3f> vP3D1, vP3D2, vP3D3, vP3D4;
+    vector<bool> vbTriangulated1,vbTriangulated2,vbTriangulated3, vbTriangulated4;
+    float parallax1,parallax2, parallax3, parallax4;
+
+    int nGood1 = CheckRT(R1,t1,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D1, 4.0*mSigma2, vbTriangulated1, parallax1);
+    int nGood2 = CheckRT(R2,t1,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D2, 4.0*mSigma2, vbTriangulated2, parallax2);
+    int nGood3 = CheckRT(R1,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D3, 4.0*mSigma2, vbTriangulated3, parallax3);
+    int nGood4 = CheckRT(R2,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D4, 4.0*mSigma2, vbTriangulated4, parallax4);
+
+    int maxGood = max(nGood1,max(nGood2,max(nGood3,nGood4)));
+
+    R21 = cv::Mat();
+    t21 = cv::Mat();
+
+    int nMinGood = max(static_cast<int>(0.9*N),minTriangulated);
+
+    int nsimilar = 0;
+    if(nGood1>0.7*maxGood)
+        nsimilar++;
+    if(nGood2>0.7*maxGood)
+        nsimilar++;
+    if(nGood3>0.7*maxGood)
+        nsimilar++;
+    if(nGood4>0.7*maxGood)
+        nsimilar++;
+
+    // If there is not a clear winner or not enough triangulated points reject initialization
+    if(maxGood<nMinGood || nsimilar>1)
+    {
+        return false;
+    }
+
+    // If best reconstruction has enough parallax initialize
+    if(maxGood==nGood1)
+    {
+        if(parallax1>minParallax)
+        {
+            vP3D = vP3D1;
+            vbTriangulated = vbTriangulated1;
+
+            R1.copyTo(R21);
+            t1.copyTo(t21);
+            return true;
+        }
+    }else if(maxGood==nGood2)
+    {
+        if(parallax2>minParallax)
+        {
+            vP3D = vP3D2;
+            vbTriangulated = vbTriangulated2;
+
+            R2.copyTo(R21);
+            t1.copyTo(t21);
+            return true;
+        }
+    }else if(maxGood==nGood3)
+    {
+        if(parallax3>minParallax)
+        {
+            vP3D = vP3D3;
+            vbTriangulated = vbTriangulated3;
+
+            R1.copyTo(R21);
+            t2.copyTo(t21);
+            return true;
+        }
+    }else if(maxGood==nGood4)
+    {
+        if(parallax4>minParallax)
+        {
+            vP3D = vP3D4;
+            vbTriangulated = vbTriangulated4;
+
+            R2.copyTo(R21);
+            t2.copyTo(t21);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+///////////////////////////////////////////////////////////////////////////////////// 工具函数
+
+/// @brief 归一化特征点
+/// @param vKeys F 关键点集
+/// @param vNormalizedPoints 归一化特征点集
+/// @param T 归一化操作变换矩阵 3*3
 void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2f> &vNormalizedPoints, cv::Mat &T)
 {
-    float meanX = 0;
-    float meanY = 0;
-    const int N = vKeys.size();
-
+    const int N = vKeys.size();  // KP 总数
     vNormalizedPoints.resize(N);
 
+    float meanX = 0;  // x 均值
+    float meanY = 0;  // y 均值
+
+    // 计算均值
     for(int i=0; i<N; i++)
     {
         meanX += vKeys[i].pt.x;
         meanY += vKeys[i].pt.y;
     }
-
     meanX = meanX/N;
     meanY = meanY/N;
 
-    float meanDevX = 0;
-    float meanDevY = 0;
-
+    // 字面上讲是计算方差  但这里计算的是误差绝对值的平均值，用来近似标准差
+    float meanDevX = 0;  // x 误差均值
+    float meanDevY = 0;  // y 误差均值
     for(int i=0; i<N; i++)
     {
         vNormalizedPoints[i].x = vKeys[i].pt.x - meanX;
@@ -778,15 +875,17 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
     meanDevX = meanDevX/N;
     meanDevY = meanDevY/N;
 
-    float sX = 1.0/meanDevX;
-    float sY = 1.0/meanDevY;
+    float sX = 1.0/meanDevX;  // x 归一化系数
+    float sY = 1.0/meanDevY;  // y 归一化系数
 
+    // 归一化点坐标
     for(int i=0; i<N; i++)
     {
         vNormalizedPoints[i].x = vNormalizedPoints[i].x * sX;
         vNormalizedPoints[i].y = vNormalizedPoints[i].y * sY;
     }
 
+    // 归一化变换矩阵
     T = cv::Mat::eye(3,3,CV_32F);
     T.at<float>(0,0) = sX;
     T.at<float>(1,1) = sY;
@@ -794,7 +893,19 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys, vector<cv::Point2
     T.at<float>(1,2) = -meanY*sY;
 }
 
-
+/// @brief 检查姿态与位置，三角化 KP
+/// @param R 姿态
+/// @param t 位置
+/// @param vKeys1 F1 KP
+/// @param vKeys2 F2 KP
+/// @param vMatches12 F1 KP 匹配到 F2 KP
+/// @param vbMatchesInliers 内点标志位
+/// @param K 内参
+/// @param vP3D 三角化空间点坐标
+/// @param th2 重投影误差御旨
+/// @param vbGood 坏点标志位？
+/// @param parallax 视差
+/// @return 
 int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::KeyPoint> &vKeys1, const vector<cv::KeyPoint> &vKeys2,
                        const vector<Match> &vMatches12, vector<bool> &vbMatchesInliers,
                        const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax)
@@ -827,6 +938,7 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
 
     int nGood=0;
 
+    // 三角化点
     for(size_t i=0, iend=vMatches12.size();i<iend;i++)
     {
         if(!vbMatchesInliers[i])
@@ -906,6 +1018,32 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::Ke
     return nGood;
 }
 
+/// @brief 三角化
+/// @param kp1 KP1
+/// @param kp2 KP2
+/// @param P1 ?
+/// @param P2 ?
+/// @param x3D ?
+void Initializer::Triangulate(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &P1, const cv::Mat &P2, cv::Mat &x3D)
+{
+    cv::Mat A(4,4,CV_32F);
+
+    A.row(0) = kp1.pt.x*P1.row(2)-P1.row(0);
+    A.row(1) = kp1.pt.y*P1.row(2)-P1.row(1);
+    A.row(2) = kp2.pt.x*P2.row(2)-P2.row(0);
+    A.row(3) = kp2.pt.y*P2.row(2)-P2.row(1);
+
+    cv::Mat u,w,vt;
+    cv::SVD::compute(A,w,u,vt,cv::SVD::MODIFY_A| cv::SVD::FULL_UV);
+    x3D = vt.row(3).t();
+    x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
+}
+
+/// @brief 分解本质矩阵
+/// @param E 本质矩阵
+/// @param R1 姿态1
+/// @param R2 姿态2
+/// @param t 位置
 void Initializer::DecomposeE(const cv::Mat &E, cv::Mat &R1, cv::Mat &R2, cv::Mat &t)
 {
     cv::Mat u,w,vt;

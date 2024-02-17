@@ -27,7 +27,9 @@
 namespace ORB_SLAM2
 {
 
-
+/// @brief 地图绘制器构造函数
+/// @param pMap 
+/// @param strSettingPath 
 MapDrawer::MapDrawer(Map* pMap, const string &strSettingPath):mpMap(pMap)
 {
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);

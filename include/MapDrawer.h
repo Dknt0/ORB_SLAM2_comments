@@ -31,6 +31,7 @@
 namespace ORB_SLAM2
 {
 
+/// @brief 地图绘制器
 class MapDrawer
 {
 public:

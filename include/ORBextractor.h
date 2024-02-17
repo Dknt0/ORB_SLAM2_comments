@@ -23,25 +23,29 @@
 
 #include <vector>
 #include <list>
-#include <opencv/cv.h>
+#include <opencv2/opencv.hpp>
 
 
 namespace ORB_SLAM2
 {
 
+/// @brief 特征区域划分四叉树节点
 class ExtractorNode
 {
 public:
-    ExtractorNode():bNoMore(false){}
+    ExtractorNode(): bNoMore(false){}
 
     void DivideNode(ExtractorNode &n1, ExtractorNode &n2, ExtractorNode &n3, ExtractorNode &n4);
 
-    std::vector<cv::KeyPoint> vKeys;
-    cv::Point2i UL, UR, BL, BR;
-    std::list<ExtractorNode>::iterator lit;
-    bool bNoMore;
+    std::vector<cv::KeyPoint> vKeys;  // 区域内的所有特征点
+    cv::Point2i UL, UR, BL, BR;  // 当前分块边界点坐标
+    std::list<ExtractorNode>::iterator lit;  // 节点列表迭代器，指向自己
+    bool bNoMore;  // 是否只包含一个特征点
 };
 
+// 提取器每次处理之后都会暂存上一次处理的金字塔等数据，可以供搜索等使用
+
+/// @brief 提取器构造函数
 class ORBextractor
 {
 public:
@@ -56,6 +60,7 @@ public:
     // Compute the ORB features and descriptors on an image.
     // ORB are dispersed on the image using an octree.
     // Mask is ignored in the current implementation.
+    
     void operator()( cv::InputArray image, cv::InputArray mask,
       std::vector<cv::KeyPoint>& keypoints,
       cv::OutputArray descriptors);
@@ -82,7 +87,7 @@ public:
         return mvInvLevelSigma2;
     }
 
-    std::vector<cv::Mat> mvImagePyramid;
+    std::vector<cv::Mat> mvImagePyramid;  // 图像金字塔
 
 protected:
 
@@ -92,22 +97,25 @@ protected:
                                            const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
 
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
+
+    // 描述子计算模板
+    // cv::Point 是 cv::Point2i 类型
     std::vector<cv::Point> pattern;
 
-    int nfeatures;
-    double scaleFactor;
-    int nlevels;
-    int iniThFAST;
-    int minThFAST;
+    int nfeatures;  // 特征总数
+    double scaleFactor;  // 金字塔层间比例
+    int nlevels;  // 金字塔层数
+    int iniThFAST;  // FAST 初始阈值
+    int minThFAST;  // FAST 最小阈值
 
-    std::vector<int> mnFeaturesPerLevel;
+    std::vector<int> mnFeaturesPerLevel;  // 每一层中的特征点数
 
-    std::vector<int> umax;
+    std::vector<int> umax;  // 预先计算的 1/4 圆弧点坐标
 
-    std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
-    std::vector<float> mvInvLevelSigma2;
+    std::vector<float> mvScaleFactor;  // 每一层的绝对尺寸比例  大于 1
+    std::vector<float> mvInvScaleFactor;  // 每一层的逆绝对尺寸比例  小于 1
+    std::vector<float> mvLevelSigma2;  // 金字塔面积绝对比例  大于 1
+    std::vector<float> mvInvLevelSigma2;  // 金字塔逆面积绝对比例  小于 1
 };
 
 } //namespace ORB_SLAM

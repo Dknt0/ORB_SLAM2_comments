@@ -37,6 +37,7 @@ class FrameDrawer;
 class MapDrawer;
 class System;
 
+/// @brief 显示类
 class Viewer
 {
 public:

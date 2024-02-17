@@ -20,15 +20,18 @@
 
 #include "Map.h"
 
-#include<mutex>
+#include <mutex>
 
 namespace ORB_SLAM2
 {
 
+/// @brief 构造函数
 Map::Map():mnMaxKFid(0),mnBigChangeIdx(0)
 {
 }
 
+/// @brief 添加关键帧
+/// @param pKF 
 void Map::AddKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexMap);
@@ -37,12 +40,16 @@ void Map::AddKeyFrame(KeyFrame *pKF)
         mnMaxKFid=pKF->mnId;
 }
 
+/// @brief 添加地图点
+/// @param pMP 
 void Map::AddMapPoint(MapPoint *pMP)
 {
     unique_lock<mutex> lock(mMutexMap);
     mspMapPoints.insert(pMP);
 }
 
+/// @brief 删除地图点  没有从内存中删除点！
+/// @param pMP 
 void Map::EraseMapPoint(MapPoint *pMP)
 {
     unique_lock<mutex> lock(mMutexMap);
@@ -52,6 +59,8 @@ void Map::EraseMapPoint(MapPoint *pMP)
     // Delete the MapPoint
 }
 
+/// @brief 删除关键帧  没有从内存中删除帧！
+/// @param pKF 
 void Map::EraseKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexMap);
@@ -61,62 +70,81 @@ void Map::EraseKeyFrame(KeyFrame *pKF)
     // Delete the MapPoint
 }
 
+/// @brief 设置参考地图点
+/// @param vpMPs 
 void Map::SetReferenceMapPoints(const vector<MapPoint *> &vpMPs)
 {
     unique_lock<mutex> lock(mMutexMap);
     mvpReferenceMapPoints = vpMPs;
 }
 
+/// @brief 进行大改动
 void Map::InformNewBigChange()
 {
     unique_lock<mutex> lock(mMutexMap);
     mnBigChangeIdx++;
 }
 
+/// @brief 获取上一次大改动序号
+/// @return 
 int Map::GetLastBigChangeIdx()
 {
     unique_lock<mutex> lock(mMutexMap);
     return mnBigChangeIdx;
 }
 
+/// @brief 获取全部关键帧
+/// @return 
 vector<KeyFrame*> Map::GetAllKeyFrames()
 {
     unique_lock<mutex> lock(mMutexMap);
     return vector<KeyFrame*>(mspKeyFrames.begin(),mspKeyFrames.end());
 }
 
+/// @brief 获取全部地图点
+/// @return 
 vector<MapPoint*> Map::GetAllMapPoints()
 {
     unique_lock<mutex> lock(mMutexMap);
     return vector<MapPoint*>(mspMapPoints.begin(),mspMapPoints.end());
 }
 
+/// @brief 获取地图点总数
+/// @return 
 long unsigned int Map::MapPointsInMap()
 {
     unique_lock<mutex> lock(mMutexMap);
     return mspMapPoints.size();
 }
 
+/// @brief 获取关键帧总数
+/// @return 
 long unsigned int Map::KeyFramesInMap()
 {
     unique_lock<mutex> lock(mMutexMap);
     return mspKeyFrames.size();
 }
 
+/// @brief 获取参考地图点
+/// @return 
 vector<MapPoint*> Map::GetReferenceMapPoints()
 {
     unique_lock<mutex> lock(mMutexMap);
     return mvpReferenceMapPoints;
 }
 
+/// @brief 获取最大关键帧 ID
+/// @return 
 long unsigned int Map::GetMaxKFid()
 {
     unique_lock<mutex> lock(mMutexMap);
     return mnMaxKFid;
 }
 
+/// @brief 清除所有数据
 void Map::clear()
 {
+    // 这里清理了堆区内存
     for(set<MapPoint*>::iterator sit=mspMapPoints.begin(), send=mspMapPoints.end(); sit!=send; sit++)
         delete *sit;
 

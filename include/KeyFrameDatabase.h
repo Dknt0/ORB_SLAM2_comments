@@ -31,42 +31,42 @@
 
 #include<mutex>
 
-
 namespace ORB_SLAM2
 {
 
 class KeyFrame;
 class Frame;
 
-
+/// @brief 关键帧数据库
 class KeyFrameDatabase
 {
 public:
 
-    KeyFrameDatabase(const ORBVocabulary &voc);
+  KeyFrameDatabase(const ORBVocabulary &voc);
 
-   void add(KeyFrame* pKF);
+  void add(KeyFrame* pKF);
 
-   void erase(KeyFrame* pKF);
+  void erase(KeyFrame* pKF);
 
-   void clear();
+  void clear();
 
-   // Loop Detection
-   std::vector<KeyFrame *> DetectLoopCandidates(KeyFrame* pKF, float minScore);
+  // Loop Detection
+  std::vector<KeyFrame *> DetectLoopCandidates(KeyFrame* pKF, float minScore);
 
-   // Relocalization
-   std::vector<KeyFrame*> DetectRelocalizationCandidates(Frame* F);
+  // Relocalization
+  std::vector<KeyFrame*> DetectRelocalizationCandidates(Frame* F);
 
 protected:
 
   // Associated vocabulary
-  const ORBVocabulary* mpVoc;
+  const ORBVocabulary* mpVoc;  // 视觉字典
 
   // Inverted file
-  std::vector<list<KeyFrame*> > mvInvertedFile;
+  // 文件记录不同单词。如果构造一个集合，记录相同单词在哪些文件中出现过，就是逆文件
+  std::vector<list<KeyFrame*> > mvInvertedFile;  // 逆文件向量  包含单词的关键帧列表  [单词序号]list<关键帧>
 
   // Mutex
-  std::mutex mMutex;
+  std::mutex mMutex;  // 关键帧数据库锁
 };
 
 } //namespace ORB_SLAM

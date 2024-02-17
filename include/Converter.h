@@ -18,21 +18,30 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+// 类似于 Common.h
+
+// ORB-SLAM2 中的矩阵、向量基本都是 cv::Mat 写的，而 g2o 基于 Eigen
+// 所以需要类型转换
+// ORB-SLAM3 中开始大量使用 Eigen
+
 #ifndef CONVERTER_H
 #define CONVERTER_H
 
-#include<opencv2/core/core.hpp>
+#include <opencv2/core/core.hpp>
 
-#include<Eigen/Dense>
-#include"Thirdparty/g2o/g2o/types/types_six_dof_expmap.h"
-#include"Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
+#include <Eigen/Dense>
+#include "Thirdparty/g2o/g2o/types/types_six_dof_expmap.h"
+#include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 
 namespace ORB_SLAM2
 {
 
+/// @brief 一些类型转换函数
 class Converter
 {
 public:
+    // 为何都是 static ?
+
     static std::vector<cv::Mat> toDescriptorVector(const cv::Mat &Descriptors);
 
     static g2o::SE3Quat toSE3Quat(const cv::Mat &cvT);
@@ -52,6 +61,6 @@ public:
     static std::vector<float> toQuaternion(const cv::Mat &M);
 };
 
-}// namespace ORB_SLAM
+} // namespace ORB_SLAM
 
 #endif // CONVERTER_H

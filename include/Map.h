@@ -27,8 +27,6 @@
 
 #include <mutex>
 
-
-
 namespace ORB_SLAM2
 {
 
@@ -39,6 +37,7 @@ class Map
 {
 public:
     Map();
+    // 增删改
 
     void AddKeyFrame(KeyFrame* pKF);
     void AddMapPoint(MapPoint* pMP);
@@ -46,38 +45,36 @@ public:
     void EraseKeyFrame(KeyFrame* pKF);
     void SetReferenceMapPoints(const std::vector<MapPoint*> &vpMPs);
     void InformNewBigChange();
-    int GetLastBigChangeIdx();
+    void clear();
+    // 查
 
     std::vector<KeyFrame*> GetAllKeyFrames();
     std::vector<MapPoint*> GetAllMapPoints();
     std::vector<MapPoint*> GetReferenceMapPoints();
-
+    int GetLastBigChangeIdx();
     long unsigned int MapPointsInMap();
     long unsigned  KeyFramesInMap();
-
     long unsigned int GetMaxKFid();
 
-    void clear();
 
-    vector<KeyFrame*> mvpKeyFrameOrigins;
+    vector<KeyFrame*> mvpKeyFrameOrigins;  // 关键帧原点  为啥是个向量，不应该只有一个吗?
 
-    std::mutex mMutexMapUpdate;
+    std::mutex mMutexMapUpdate;  // 地图更新锁
 
     // This avoid that two points are created simultaneously in separate threads (id conflict)
-    std::mutex mMutexPointCreation;
+    std::mutex mMutexPointCreation;  // 地图点创建锁
 
 protected:
-    std::set<MapPoint*> mspMapPoints;
-    std::set<KeyFrame*> mspKeyFrames;
+    std::set<MapPoint*> mspMapPoints;  // 地图点集合
+    std::set<KeyFrame*> mspKeyFrames;  // 关键帧集合
+    std::vector<MapPoint*> mvpReferenceMapPoints;  // 参考地图点集 LocalMap MP
 
-    std::vector<MapPoint*> mvpReferenceMapPoints;
-
-    long unsigned int mnMaxKFid;
+    long unsigned int mnMaxKFid; // 最大关键帧序号
 
     // Index related to a big change in the map (loop closure, global BA)
-    int mnBigChangeIdx;
+    int mnBigChangeIdx;  // 上一次大改变序号
 
-    std::mutex mMutexMap;
+    std::mutex mMutexMap;  // 地图锁
 };
 
 } //namespace ORB_SLAM
