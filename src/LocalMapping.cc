@@ -650,7 +650,7 @@ void LocalMapping::SetAcceptKeyFrames(bool flag)
     mbAcceptKeyFrames=flag;
 }
 
-/// @brief 设置不暂停标志位
+/// @brief 设置不暂停标志位  Tracking 创建 KF 时调用
 /// @param flag 
 /// @return 
 bool LocalMapping::SetNotStop(bool flag)

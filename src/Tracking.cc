@@ -864,21 +864,26 @@ namespace ORB_SLAM2
         Optimizer::PoseOptimization(&mCurrentFrame);
     
         // Discard outliers
+        // 外点剔除
         int nmatchesMap = 0;
         for(int i =0; i<mCurrentFrame.N; i++)
         {
             if(mCurrentFrame.mvpMapPoints[i])
             {
+                // 此处外点标志位是在 PoseOptimization 优化中根据残差大小确定的
                 if(mCurrentFrame.mvbOutlier[i])
                 {
                     MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
-    
+
+                    // 删除 F 对 MP 的观测
                     mCurrentFrame.mvpMapPoints[i]=static_cast<MapPoint*>(NULL);
                     mCurrentFrame.mvbOutlier[i]=false;
+                    // 清除 MP 成员变量
                     pMP->mbTrackInView = false;
                     pMP->mnLastFrameSeen = mCurrentFrame.mnId;
                     nmatches--;
                 }
+                // 如果 MP 有效
                 else if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
                     nmatchesMap++;
             }
@@ -887,22 +892,26 @@ namespace ORB_SLAM2
         return nmatchesMap>=10;
     }
     
-    /// @brief 更新最后一帧  用于纯定位模式
+    /// @brief 更新上一帧
     void Tracking::UpdateLastFrame()
     {
+        // 为什么需要下面这个步骤，考虑到优化会改变结果？
         // Update pose according to reference keyframe
         KeyFrame* pRef = mLastFrame.mpReferenceKF;
         cv::Mat Tlr = mlRelativeFramePoses.back();
     
-        mLastFrame.SetPose(Tlr*pRef->GetPose());
-    
+        mLastFrame.SetPose(Tlr*pRef->GetPose());  // 相对位姿到绝对位姿
+
+        /* 纯定位模式下，为上一帧的近双目 KP 创建 MP */
         if(mnLastKeyFrameId==mLastFrame.mnId || mSensor==System::MONOCULAR || !mbOnlyTracking)
             return;
     
         // Create "visual odometry" MapPoints
         // We sort points according to their measured depth by the stereo/RGB-D sensor
-        vector<pair<float,int> > vDepthIdx;
+        // 为深度有效的近双目点 KP 创建 MP
+        vector<pair<float,int> > vDepthIdx;  // 用于排序  v<p<depth, KP index>>
         vDepthIdx.reserve(mLastFrame.N);
+        // 遍历所有 KP
         for(int i=0; i<mLastFrame.N;i++)
         {
             float z = mLastFrame.mvDepth[i];
@@ -914,7 +923,8 @@ namespace ORB_SLAM2
     
         if(vDepthIdx.empty())
             return;
-    
+
+        // 排序
         sort(vDepthIdx.begin(),vDepthIdx.end());
     
         // We insert all close points (depth<mThDepth)
@@ -925,7 +935,8 @@ namespace ORB_SLAM2
             int i = vDepthIdx[j].second;
     
             bool bCreateNew = false;
-    
+
+            // 如果这个 KP 已经对应到有效的 MP，忽略   调用这个函数时貌似还没有对 F 进行过匹配
             MapPoint* pMP = mLastFrame.mvpMapPoints[i];
             if(!pMP)
                 bCreateNew = true;
@@ -937,6 +948,7 @@ namespace ORB_SLAM2
             if(bCreateNew)
             {
                 cv::Mat x3D = mLastFrame.UnprojectStereo(i);
+                // 为近双目点创建临时地图点，注意这些地图点没有添加到 Map 中，且 KF 观测数为 0
                 MapPoint* pNewMP = new MapPoint(x3D,mpMap,&mLastFrame,i);
     
                 mLastFrame.mvpMapPoints[i]=pNewMP;
@@ -965,7 +977,8 @@ namespace ORB_SLAM2
         UpdateLastFrame();
     
         mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);
-    
+        
+        // 清除当前帧地图点观测
         fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
     
         // Project points seen in previous frame
@@ -974,6 +987,8 @@ namespace ORB_SLAM2
             th=15;
         else
             th=7;
+
+        /* 帧间匹配 */
         int nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,th,mSensor==System::MONOCULAR);
     
         // If few matches, uses a wider window search
@@ -985,12 +1000,13 @@ namespace ORB_SLAM2
     
         if(nmatches<20)
             return false;
-    
+
+        /* 优化 */
         // Optimize frame pose with all matches
         Optimizer::PoseOptimization(&mCurrentFrame);
     
         // Discard outliers
-        int nmatchesMap = 0;
+        int nmatchesMap = 0;  // 地图点匹配
         for(int i =0; i<mCurrentFrame.N; i++)
         {
             if(mCurrentFrame.mvpMapPoints[i])
@@ -1005,11 +1021,13 @@ namespace ORB_SLAM2
                     pMP->mnLastFrameSeen = mCurrentFrame.mnId;
                     nmatches--;
                 }
+                // 坏点或临时点
                 else if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
                     nmatchesMap++;
             }
         }    
-    
+
+        // 纯定位模式下，如果追踪到地图点数量不足，但是帧见匹配
         if(mbOnlyTracking)
         {
             mbVO = nmatchesMap<10;
@@ -1025,16 +1043,19 @@ namespace ORB_SLAM2
     {
         // We have an estimation of the camera pose and some map points tracked in the frame.
         // We retrieve the local map and try to find matches to points in the local map.
-    
+
+        // 更新局部地图
         UpdateLocalMap();
-    
+
+        // 搜索局部点
         SearchLocalPoints();
     
         // Optimize Pose
         Optimizer::PoseOptimization(&mCurrentFrame);
-        mnMatchesInliers = 0;
+        mnMatchesInliers = 0;  // 匹配内点数量
     
         // Update MapPoints Statistics
+        // 遍历当前 F KP
         for(int i=0; i<mCurrentFrame.N; i++)
         {
             if(mCurrentFrame.mvpMapPoints[i])
@@ -1058,6 +1079,7 @@ namespace ORB_SLAM2
     
         // Decide if the tracking was succesful
         // More restrictive if there was a relocalization recently
+        // 重定位 1s 内的检测更加严格
         if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
             return false;
     
@@ -1071,15 +1093,18 @@ namespace ORB_SLAM2
     /// @return 
     bool Tracking::NeedNewKeyFrame()
     {
+        // 纯定位模式下不需要创建 KF
         if(mbOnlyTracking)
             return false;
-    
+
+        // 当 LocalMapping 被 LoopClosing 中断时，不创建 KF
         // If Local Mapping is freezed by a Loop Closure do not insert keyframes
         if(mpLocalMapper->isStopped() || mpLocalMapper->stopRequested())
             return false;
     
-        const int nKFs = mpMap->KeyFramesInMap();
-    
+        const int nKFs = mpMap->KeyFramesInMap();  // KF 总数
+
+        // 如果距离上次 KF 创建没有走过足够 F，不创建 KF
         // Do not insert keyframes if not enough frames have passed from last relocalisation
         if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && nKFs>mMaxFrames)
             return false;
@@ -1088,20 +1113,24 @@ namespace ORB_SLAM2
         int nMinObs = 3;
         if(nKFs<=2)
             nMinObs=2;
-        int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);
+        int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);  // 参考 KF 有效 MP 追踪数量
     
         // Local Mapping accept keyframes?
-        bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();
+        bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();  // LocalMapping 是否接受 KF
     
         // Check how many "close" points are being tracked and how many could be potentially created.
-        int nNonTrackedClose = 0;
-        int nTrackedClose= 0;
+        int nNonTrackedClose = 0;  // 未匹配的近双目点
+        int nTrackedClose= 0;  // 已匹配的近双目点
+        // 双目或深度
         if(mSensor!=System::MONOCULAR)
         {
+            // 遍历 KF
             for(int i =0; i<mCurrentFrame.N; i++)
             {
+                // 如果深度有效，且为近双目点
                 if(mCurrentFrame.mvDepth[i]>0 && mCurrentFrame.mvDepth[i]<mThDepth)
                 {
+                    // 对于存在 MP 匹配，且匹配不为外点的 KP，记为已匹配
                     if(mCurrentFrame.mvpMapPoints[i] && !mCurrentFrame.mvbOutlier[i])
                         nTrackedClose++;
                     else
@@ -1109,23 +1138,28 @@ namespace ORB_SLAM2
                 }
             }
         }
-    
-        bool bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);
+
+        // 当已匹配的近双目点过少且未匹配的近双目点过多时，设置需要添加近双目点标志位
+        bool bNeedToInsertClose = (nTrackedClose<100) && (nNonTrackedClose>70);  // 需要添加近双目点标志位
     
         // Thresholds
-        float thRefRatio = 0.75f;
+        float thRefRatio = 0.75f;  // 参考 KF 阈值
         if(nKFs<2)
             thRefRatio = 0.4f;
     
         if(mSensor==System::MONOCULAR)
             thRefRatio = 0.9f;
-    
+
+        // 条件1a  距离上次创建 KF 已超过最大创建间隔
         // Condition 1a: More than "MaxFrames" have passed from last keyframe insertion
         const bool c1a = mCurrentFrame.mnId>=mnLastKeyFrameId+mMaxFrames;
+        // 条件1b  距离上次创建 KF 已超过最小创建间隔，且 LocalMapping 接收 KF
         // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
         const bool c1b = (mCurrentFrame.mnId>=mnLastKeyFrameId+mMinFrames && bLocalMappingIdle);
-        //Condition 1c: tracking is weak
+        // 条件1c  非单目下，匹配到 MP 过少或需要添加近双目点
+        // Condition 1c: tracking is weak
         const bool c1c =  mSensor!=System::MONOCULAR && (mnMatchesInliers<nRefMatches*0.25 || bNeedToInsertClose) ;
+        // 条件2  匹配到 MP 过少或需要添加近双目点，相比下 VO 匹配点更多
         // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
         const bool c2 = ((mnMatchesInliers<nRefMatches*thRefRatio|| bNeedToInsertClose) && mnMatchesInliers>15);
     
@@ -1139,6 +1173,7 @@ namespace ORB_SLAM2
             }
             else
             {
+                // 如果 LocalMapping 不接收 KF，则发送信号中断 BA
                 mpLocalMapper->InterruptBA();
                 if(mSensor!=System::MONOCULAR)
                 {
@@ -1158,17 +1193,22 @@ namespace ORB_SLAM2
     /// @brief 创建新关键帧
     void Tracking::CreateNewKeyFrame()
     {
+        // 设置 LocalMapping 为拒绝中断
         if(!mpLocalMapper->SetNotStop(true))
             return;
-    
+
+        // 创建 KF
         KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
-    
+
+        // 参考 KF 设置为新 KF
         mpReferenceKF = pKF;
         mCurrentFrame.mpReferenceKF = pKF;
-    
+
+        // 非单目模式下，为近双目点创建 MP
+        // 如果近双目点数量少于 100，则额外为最近的双目点创建 MP，使观测到的 MP 总数为 100
         if(mSensor!=System::MONOCULAR)
         {
-            mCurrentFrame.UpdatePoseMatrices();
+            mCurrentFrame.UpdatePoseMatrices();  // 更新位姿信息
     
             // We sort points by the measured depth by the stereo/RGBD sensor.
             // We create all those MapPoints whose depth < mThDepth.
@@ -1186,15 +1226,17 @@ namespace ORB_SLAM2
     
             if(!vDepthIdx.empty())
             {
+                // 按照深度排序
                 sort(vDepthIdx.begin(),vDepthIdx.end());
     
-                int nPoints = 0;
+                int nPoints = 0;  // MP 总数
                 for(size_t j=0; j<vDepthIdx.size();j++)
                 {
                     int i = vDepthIdx[j].second;
     
                     bool bCreateNew = false;
-    
+
+                    // 如果 KP 存在有效的 MP 观测，忽略
                     MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
                     if(!pMP)
                         bCreateNew = true;
@@ -1203,11 +1245,13 @@ namespace ORB_SLAM2
                         bCreateNew = true;
                         mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
                     }
-    
+
+                    // 如果需要创建 MP
                     if(bCreateNew)
                     {
-                        cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
-                        MapPoint* pNewMP = new MapPoint(x3D,pKF,mpMap);
+                        cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);  // twp
+                        MapPoint* pNewMP = new MapPoint(x3D,pKF,mpMap);  // new MP
+                        // 更新共视关系，添加 MP 到地图
                         pNewMP->AddObservation(pKF,i);
                         pKF->AddMapPoint(pNewMP,i);
                         pNewMP->ComputeDistinctiveDescriptors();
@@ -1227,18 +1271,22 @@ namespace ORB_SLAM2
                 }
             }
         }
-    
+
+        // 添加 KF
         mpLocalMapper->InsertKeyFrame(pKF);
-    
+
+        // 恢复 LocalMapping
         mpLocalMapper->SetNotStop(false);
     
         mnLastKeyFrameId = mCurrentFrame.mnId;
         mpLastKeyFrame = pKF;
     }
     
-    /// @brief 筛选局部地图点
+    /// @brief 匹配当前 F 与局部 MP
     void Tracking::SearchLocalPoints()
     {
+        /* 检查局部 MP 是否在当前 F 视角截锥体内 */
+        // 忽略已经匹配的 MP
         // Do not search map points already matched
         for(vector<MapPoint*>::iterator vit=mCurrentFrame.mvpMapPoints.begin(), vend=mCurrentFrame.mvpMapPoints.end(); vit!=vend; vit++)
         {
@@ -1259,7 +1307,8 @@ namespace ORB_SLAM2
         }
     
         int nToMatch=0;
-    
+
+        // 检查 MP 可视性，即是否位于当前 F 视角截椎体内
         // Project points in frame and check its visibility
         for(vector<MapPoint*>::iterator vit=mvpLocalMapPoints.begin(), vend=mvpLocalMapPoints.end(); vit!=vend; vit++)
         {
@@ -1285,6 +1334,7 @@ namespace ORB_SLAM2
             // If the camera has been relocalised recently, perform a coarser search
             if(mCurrentFrame.mnId<mnLastRelocFrameId+2)
                 th=5;
+            // 投影匹配
             matcher.SearchByProjection(mCurrentFrame,mvpLocalMapPoints,th);
         }
     }
@@ -1303,13 +1353,17 @@ namespace ORB_SLAM2
     /// @brief 更新局部点
     void Tracking::UpdateLocalPoints()
     {
+        /* 将局部 KF 的 MP 观测作为局部 MP */
+        // 清空局部 MP
         mvpLocalMapPoints.clear();
-    
+
+        // 遍历局部 KF
         for(vector<KeyFrame*>::const_iterator itKF=mvpLocalKeyFrames.begin(), itEndKF=mvpLocalKeyFrames.end(); itKF!=itEndKF; itKF++)
         {
             KeyFrame* pKF = *itKF;
             const vector<MapPoint*> vpMPs = pKF->GetMapPointMatches();
-    
+            
+            // 遍历局部 KF MP
             for(vector<MapPoint*>::const_iterator itMP=vpMPs.begin(), itEndMP=vpMPs.end(); itMP!=itEndMP; itMP++)
             {
                 MapPoint* pMP = *itMP;
@@ -1329,8 +1383,10 @@ namespace ORB_SLAM2
     /// @brief 更新局部关键帧
     void Tracking::UpdateLocalKeyFrames()
     {
+        /* 从当前 F MP 寻找共视 KF，加入局部 KF */
         // Each map point vote for the keyframes in which it has been observed
-        map<KeyFrame*,int> keyframeCounter;
+        map<KeyFrame*,int> keyframeCounter;  // KF 计数器
+        // 遍历当前 F MP 观测
         for(int i=0; i<mCurrentFrame.N; i++)
         {
             if(mCurrentFrame.mvpMapPoints[i])
@@ -1338,7 +1394,7 @@ namespace ORB_SLAM2
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
                 if(!pMP->isBad())
                 {
-                    const map<KeyFrame*,size_t> observations = pMP->GetObservations();
+                    const map<KeyFrame*,size_t> observations = pMP->GetObservations();  // 观测到 MP 的 KF  map<KF ptr, KP idx>
                     for(map<KeyFrame*,size_t>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
                         keyframeCounter[it->first]++;
                 }
@@ -1351,14 +1407,17 @@ namespace ORB_SLAM2
     
         if(keyframeCounter.empty())
             return;
-    
-        int max=0;
-        KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);
-    
+
+        // 统计最大共视数的 KF 作为参考 KF 使用
+        int max=0;  // 最大共视数
+        KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);  // 最大共视数 KF
+
+        // 清空局部地图，预分配内存
         mvpLocalKeyFrames.clear();
         mvpLocalKeyFrames.reserve(3*keyframeCounter.size());
     
         // All keyframes that observe a map point are included in the local map. Also check which keyframe shares most points
+        // 遍历 KF 计数器，将共视 KF 加入局部地图
         for(map<KeyFrame*,int>::const_iterator it=keyframeCounter.begin(), itEnd=keyframeCounter.end(); it!=itEnd; it++)
         {
             KeyFrame* pKF = it->first;
@@ -1376,8 +1435,9 @@ namespace ORB_SLAM2
             pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;
         }
     
-    
+        // 下面的循环在迭代过程中动态增加 vector 元素，会出问题。但是提前分配了内存，也可能不会出问题，总之很奇怪。最好分两个 vector 写吧
         // Include also some not-already-included keyframes that are neighbors to already-included keyframes
+        // 将共视 KF 的共视 KF、生成树相邻 KF 添加到局部地图中
         for(vector<KeyFrame*>::const_iterator itKF=mvpLocalKeyFrames.begin(), itEndKF=mvpLocalKeyFrames.end(); itKF!=itEndKF; itKF++)
         {
             // Limit the number of keyframes
@@ -1385,7 +1445,8 @@ namespace ORB_SLAM2
                 break;
     
             KeyFrame* pKF = *itKF;
-    
+
+            // 添加最佳共视 KF 到局部地图
             const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);
     
             for(vector<KeyFrame*>::const_iterator itNeighKF=vNeighs.begin(), itEndNeighKF=vNeighs.end(); itNeighKF!=itEndNeighKF; itNeighKF++)
@@ -1401,7 +1462,8 @@ namespace ORB_SLAM2
                     }
                 }
             }
-    
+
+            // 添加生成树子 KF 到局部地图
             const set<KeyFrame*> spChilds = pKF->GetChilds();
             for(set<KeyFrame*>::const_iterator sit=spChilds.begin(), send=spChilds.end(); sit!=send; sit++)
             {
@@ -1416,7 +1478,8 @@ namespace ORB_SLAM2
                     }
                 }
             }
-    
+
+            // 添加父 KF 到局部地图
             KeyFrame* pParent = pKF->GetParent();
             if(pParent)
             {
@@ -1429,7 +1492,8 @@ namespace ORB_SLAM2
             }
     
         }
-    
+
+        // 如果存在最佳共视 KF，将其作为参考 KF
         if(pKFmax)
         {
             mpReferenceKF = pKFmax;
@@ -1444,6 +1508,8 @@ namespace ORB_SLAM2
         // Compute Bag of Words Vector
         mCurrentFrame.ComputeBoW();
     
+        /* 1.获取重定位候选 KF */
+
         // Relocalization is performed when tracking is lost
         // Track Lost: Query KeyFrame Database for keyframe candidates for relocalisation
         vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame);
@@ -1451,23 +1517,25 @@ namespace ORB_SLAM2
         if(vpCandidateKFs.empty())
             return false;
     
-        const int nKFs = vpCandidateKFs.size();
-    
+        const int nKFs = vpCandidateKFs.size();  // 候选 KF 数量
+
+        /* 2.初次匹配，词袋匹配 */
         // We perform first an ORB matching with each candidate
         // If enough matches are found we setup a PnP solver
         ORBmatcher matcher(0.75,true);
     
-        vector<PnPsolver*> vpPnPsolvers;
+        vector<PnPsolver*> vpPnPsolvers;  // 求解器
         vpPnPsolvers.resize(nKFs);
     
-        vector<vector<MapPoint*> > vvpMapPointMatches;
+        vector<vector<MapPoint*> > vvpMapPointMatches;  // 当前 F 到候选 KF MP 匹配
         vvpMapPointMatches.resize(nKFs);
     
-        vector<bool> vbDiscarded;
+        vector<bool> vbDiscarded;  // 抛弃候选 KF 标志位
         vbDiscarded.resize(nKFs);
     
-        int nCandidates=0;
-    
+        int nCandidates=0;  // 第二轮候选 KF 数量
+
+        // 遍历全部候选 KF
         for(int i=0; i<nKFs; i++)
         {
             KeyFrame* pKF = vpCandidateKFs[i];
@@ -1475,7 +1543,9 @@ namespace ORB_SLAM2
                 vbDiscarded[i] = true;
             else
             {
+                // 词袋匹配
                 int nmatches = matcher.SearchByBoW(pKF,mCurrentFrame,vvpMapPointMatches[i]);
+                // 如果匹配点数量足够，创建 PnP 求解器
                 if(nmatches<15)
                 {
                     vbDiscarded[i] = true;
@@ -1490,12 +1560,14 @@ namespace ORB_SLAM2
                 }
             }
         }
-    
+
+        /* 3.再次匹配，先利用 PnP 求解初值，再进行投影匹配 */
         // Alternatively perform some iterations of P4P RANSAC
         // Until we found a camera pose supported by enough inliers
         bool bMatch = false;
         ORBmatcher matcher2(0.9,true);
-    
+
+        // 循环，直到寻找到匹配或候选 KF 全部淘汰
         while(nCandidates>0 && !bMatch)
         {
             for(int i=0; i<nKFs; i++)
@@ -1504,57 +1576,69 @@ namespace ORB_SLAM2
                     continue;
     
                 // Perform 5 Ransac Iterations
-                vector<bool> vbInliers;
-                int nInliers;
+                vector<bool> vbInliers;  // 内点标志位
+                int nInliers;  // 内点总数
                 bool bNoMore;
     
                 PnPsolver* pSolver = vpPnPsolvers[i];
+                // 进行 5 次 RANSAC 迭代
                 cv::Mat Tcw = pSolver->iterate(5,bNoMore,vbInliers,nInliers);
     
                 // If Ransac reachs max. iterations discard keyframe
+                // 如果 RANSAC 达到最大迭代次数，或本轮迭代未得到有效结果，淘汰候选 KF
                 if (bNoMore || Tcw.empty())
                 {
                     vbDiscarded[i]=true;
                     nCandidates--;
                 }
-    
+
+                // 记录位姿计算结果，作为优化初值使用
                 Tcw.copyTo(mCurrentFrame.mTcw);
     
-                set<MapPoint*> sFound;
+                set<MapPoint*> sFound;  // 当前 F 观测到的 MP
     
                 const int np = vbInliers.size();
-    
+
+                // 添加当前 F 对 MP 的观测，在优化中使用
+                // 遍历当前 F 所有 KP
                 for(int j=0; j<np; j++)
                 {
+                    // 如果 KP 为对应内点
                     if(vbInliers[j])
                     {
-                        mCurrentFrame.mvpMapPoints[j]=vvpMapPointMatches[i][j];
+                        mCurrentFrame.mvpMapPoints[j]=vvpMapPointMatches[i][j];  // 添加 MP 观测
                         sFound.insert(vvpMapPointMatches[i][j]);
                     }
                     else
                         mCurrentFrame.mvpMapPoints[j]=NULL;
                 }
-    
-                int nGood = Optimizer::PoseOptimization(&mCurrentFrame);
+
+                // Motion-only BA
+                int nGood = Optimizer::PoseOptimization(&mCurrentFrame);  // 内点数量
     
                 if(nGood<10)
                     continue;
-    
+
+                // 遍历 KP，清除外点观测
                 for(int io =0; io<mCurrentFrame.N; io++)
                     if(mCurrentFrame.mvbOutlier[io])
                         mCurrentFrame.mvpMapPoints[io]=static_cast<MapPoint*>(NULL);
-    
+
+                // 如果内点很少，进行投影匹配，重新优化
                 // If few inliers, search by projection in a coarse window and optimize again
                 if(nGood<50)
                 {
+                    // 重定位投影匹配
                     int nadditional =matcher2.SearchByProjection(mCurrentFrame,vpCandidateKFs[i],sFound,10,100);
     
                     if(nadditional+nGood>=50)
                     {
+                        // Motion-only BA
                         nGood = Optimizer::PoseOptimization(&mCurrentFrame);
     
                         // If many inliers but still not enough, search by projection again in a narrower window
                         // the camera has been already optimized with many points
+                        // 如果内点还是不够，在小窗口中再次匹配、优化
                         if(nGood>30 && nGood<50)
                         {
                             sFound.clear();
@@ -1578,6 +1662,7 @@ namespace ORB_SLAM2
     
     
                 // If the pose is supported by enough inliers stop ransacs and continue
+                // 只要有一个候选 KF 与当前 F 有足够多匹配点，结束 RANSAC 采样
                 if(nGood>=50)
                 {
                     bMatch = true;

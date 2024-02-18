@@ -237,6 +237,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
 }
 
 /// @brief 检测重定位候选关键帧
+///     Tracking::Relocalization
 /// @param F 帧
 /// @return 候选关键帧向量
 vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)

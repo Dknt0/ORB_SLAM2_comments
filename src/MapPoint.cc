@@ -68,7 +68,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, KeyFrame *pRefKF, Map* pMap):
     mnId=nNextId++;
 }
 
-/// @brief 地图点构造函数  从帧构造地图点，为什么可以从帧构造地图点
+/// @brief 地图点构造函数  从帧构造地图点  在纯定位模式中基于运动模型计算位姿进行帧间匹配时使用
 /// @param Pos 位置
 /// @param pMap 地图
 /// @param pFrame 帧
@@ -212,7 +212,7 @@ map<KeyFrame*, size_t> MapPoint::GetObservations()
     return mObservations;
 }
 
-/// @brief 获取观测次数
+/// @brief 获取关键帧观测次数  如果小于 1 则此 MP 为坏点或纯定位模式中的临时点
 /// @return 
 int MapPoint::Observations()
 {

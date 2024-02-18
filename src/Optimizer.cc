@@ -267,7 +267,10 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
 }
 
-/// @brief 单帧估计  Motion-only BA
+/// @brief 单帧估计 记录外点信息  Motion-only BA
+///     Tracking::TrackReferenceKeyFrame
+///     Tracking::TrackWithMotionModel
+///     Tracking::Relocalization
 /// @param pFrame 帧
 /// @return 内点数量
 int Optimizer::PoseOptimization(Frame *pFrame)
@@ -444,6 +447,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             const size_t idx = vnIndexEdgeMono[i];  // 单目关键点序号
             
             // 若上一次优化中被设置为外点，则重新计算误差
+            // 之前被当作外点的点，也可能重新作为内点使用
             if(pFrame->mvbOutlier[idx])
             {
                 e->computeError();

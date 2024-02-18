@@ -48,6 +48,7 @@ ORBmatcher::ORBmatcher(float nnratio, bool checkOri): mfNNratio(nnratio), mbChec
 /////////////////////////////////////////////////////////////////////////////////  投影匹配函数
 
 /// @brief 帧与地图点集匹配  Tracking 中追踪 Local Map
+///     Tracking::SearchLocalPoints()
 /// @param F 当前帧
 /// @param vpMapPoints 搜索地图点集
 /// @param th 搜索窗口范围倍数
@@ -288,7 +289,8 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
 }
 
 
-/// @brief 相邻帧间匹配  Tracking 中匹配相邻帧
+/// @brief 相邻帧间匹配
+///     Tracking::TrackWithMotionModel
 /// @param CurrentFrame 当前帧
 /// @param LastFrame 上一帧
 /// @param th 搜索窗口范围倍数
@@ -468,7 +470,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
     return nmatches;  // 返回匹配点对数
 }
 
-/// @brief 匹配帧与关键帧  Tracking 中用于重定位
+/// @brief 匹配帧与关键帧  sAlreadyFound 中的 MP 不参与匹配  Tracking 中用于重定位
+///     Tracking::Relocalization
 /// @param CurrentFrame 当前帧
 /// @param pKF 关键帧
 /// @param sAlreadyFound 已经找到的地图点
@@ -882,9 +885,11 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
 /////////////////////////////////////////////////////////////////////////////////  词袋搜索函数
 
 /// @brief 搜索关键帧地图点和帧关键点的匹配  基于视觉词汇约束的暴力匹配
+///     Tracking::TrackReferenceKeyFrame
+///     Tracking::Relocalization
 /// @param pKF 关键帧  作为 const 使用
 /// @param F 帧
-/// @param vpMapPointMatches 帧地图点匹配 按 F 关键点索引  结果存放于此
+/// @param vpMapPointMatches 帧地图点匹配 按 F 关键点索引  输出
 /// @return 匹配点对数
 int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPointMatches)
 {
@@ -1187,7 +1192,7 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 /// @brief 初始化匹配  仅用于单目
 /// @param F1 初始化参考帧
 /// @param F2 当前帧
-/// @param vbPrevMatched F1 到 F2 预匹配  按 F1 关键点索引  匹配结果添加到这个向量中?
+/// @param vbPrevMatched F1 到 F2 预匹配  按 F1 关键点索引  匹配结果添加到这个向量中
 /// @param vnMatches12 F1 匹配到 F2 关键点序号  按 F1 关键点索引
 /// @param windowSize 窗口大小
 /// @return 匹配点数
