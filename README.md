@@ -1,3 +1,11 @@
+# ORB-SLAM2 注释
+
+这份代码是我学习 ORB-SLAM 的过程记录，为源码头文件、源文件添加了详细中文注释。[总结文档](ORB_SLAM2.md)包含类内重要函数的详细说明及伪代码。
+
+Dknt
+
+---
+
 # ORB-SLAM2
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
 
