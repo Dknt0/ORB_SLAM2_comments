@@ -1251,7 +1251,7 @@ namespace ORB_SLAM2
                     {
                         cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);  // twp
                         MapPoint* pNewMP = new MapPoint(x3D,pKF,mpMap);  // new MP
-                        // 更新共视关系，添加 MP 到地图
+                        // 更新观测关系，添加 MP 到地图
                         pNewMP->AddObservation(pKF,i);
                         pKF->AddMapPoint(pNewMP,i);
                         pNewMP->ComputeDistinctiveDescriptors();

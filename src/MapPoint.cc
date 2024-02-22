@@ -212,7 +212,7 @@ map<KeyFrame*, size_t> MapPoint::GetObservations()
     return mObservations;
 }
 
-/// @brief 获取关键帧观测次数  如果小于 1 则此 MP 为坏点或纯定位模式中的临时点
+/// @brief 获取 KF 观测次数  如果小于 1 则此 MP 为坏点或纯定位模式中的临时点
 /// @return 
 int MapPoint::Observations()
 {

@@ -48,14 +48,14 @@ LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, 
     mnCovisibilityConsistencyTh = 3;
 }
 
-/// @brief 设置 Tracking 线程
+/// @brief 设置 Tracking 指针
 /// @param pTracker 
 void LoopClosing::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
 }
 
-/// @brief 设置 LocalMapping 线程
+/// @brief 设置 LocalMapping 指针
 /// @param pLocalMapper 
 void LoopClosing::SetLocalMapper(LocalMapping *pLocalMapper)
 {
@@ -69,31 +69,38 @@ void LoopClosing::Run()
 
     while(1)
     {
+        // 检测是否存在新 KF
         // Check if there are keyframes in the queue
         if(CheckNewKeyFrames())
         {
+            // 检测回环候选 KF 并检查共视一致性
             // Detect loop candidates and check covisibility consistency
             if(DetectLoop())
             {
-               // Compute similarity transformation [sR|t]
-               // In the stereo/RGBD case s=1
-               if(ComputeSim3())
-               {
-                   // Perform loop fusion and pose graph optimization
-                   CorrectLoop();
-               }
+                // 如果检测出回环，求解 Sim3
+                // Compute similarity transformation [sR|t]
+                // In the stereo/RGBD case s=1
+                if(ComputeSim3())
+                {
+                    // 回环修正
+                    // Perform loop fusion and pose graph optimization
+                    CorrectLoop();
+                }
             }
         }       
 
+        // 重置检查
         ResetIfRequested();
 
+        // 终止检查
         if(CheckFinish())
             break;
 
-        // 延时 5000 us, 给局部优化充足的时间, 闭环检测线程的速度是最慢的
+        // 延时 5000 us
         usleep(5000);
     }
 
+    // 设置终止
     SetFinish();
 }
 
@@ -106,7 +113,7 @@ void LoopClosing::InsertKeyFrame(KeyFrame *pKF)
         mlpLoopKeyFrameQueue.push_back(pKF);
 }
 
-/// @brief 检查新关键帧
+/// @brief KF 队列中是否有 KF
 /// @return 
 bool LoopClosing::CheckNewKeyFrames()
 {
@@ -118,28 +125,36 @@ bool LoopClosing::CheckNewKeyFrames()
 /// @return 
 bool LoopClosing::DetectLoop()
 {
+    /* 从队列中获取 KF */
     {
         unique_lock<mutex> lock(mMutexLoopQueue);
         mpCurrentKF = mlpLoopKeyFrameQueue.front();
         mlpLoopKeyFrameQueue.pop_front();
         // Avoid that a keyframe can be erased while it is being process by this thread
+        // 设置当前 KF 不可清除，避免当前 KF 被 LocalMapping 剔除
         mpCurrentKF->SetNotErase();
     }
 
-    //If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
+    /* 如果距离上次回环检测不超过 10 KF，忽略 */
+    // If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
+        // 添加到 KFDB
         mpKeyFrameDB->add(mpCurrentKF);
+        // 设置当前 KF 可清除
         mpCurrentKF->SetErase();
         return false;
     }
 
+    /* 从当前 KF 共视 KF 中计算最小参考词袋相似性得分 */
+    // 注意，共视数和词袋相似性得分是两个概念，通常是正相关的
     // Compute reference BoW similarity score
     // This is the lowest score to a connected keyframe in the covisibility graph
     // We will impose loop candidates to have a higher similarity than this
-    const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();
-    const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;
-    float minScore = 1;
+    const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();  // 有序共视关键帧向量  共视大于 15
+    const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;  // 当前 KF 视觉描述向量
+    float minScore = 1;  // 最小词袋相似性得分得分，用于筛选候选 KF
+    // 遍历共视 KF，寻找最小相似性得分
     for(size_t i=0; i<vpConnectedKeyFrames.size(); i++)
     {
         KeyFrame* pKF = vpConnectedKeyFrames[i];
@@ -147,89 +162,110 @@ bool LoopClosing::DetectLoop()
             continue;
         const DBoW2::BowVector &BowVec = pKF->mBowVec;
 
-        float score = mpORBVocabulary->score(CurrentBowVec, BowVec);
+        float score = mpORBVocabulary->score(CurrentBowVec, BowVec);  // 相似性得分
 
         if(score<minScore)
             minScore = score;
     }
 
+    /* 检测相似性得分超过最小值的回环候选 KF */
     // Query the database imposing the minimum score
-    vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
+    vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);  // 回环候选 KF 集
 
+    /* 如果没有候选 KF，清空历史共视组集，返回 */
     // If there are no loop candidates, just add new keyframe and return false
     if(vpCandidateKFs.empty())
     {
         mpKeyFrameDB->add(mpCurrentKF);
+        // 注意这里清空了共视组集
         mvConsistentGroups.clear();
         mpCurrentKF->SetErase();
         return false;
     }
 
+    /* 共视组一致性检测 */
+    // 检查回环候选 KF 与之前候选 KF 的一致性
+    // 每一个候选 KF 扩张为一个共视组，包含候选 KF 的共视 KF
+    // 如果两个共视组包含至少一个相同 KF，则认为他们具有一致性
+    // 仅当在几帧候选 KF 共视组检测出一致性时，才接受回环结果
     // For each loop candidate check consistency with previous loop candidates
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
     mvpEnoughConsistentCandidates.clear();
 
-    vector<ConsistentGroup> vCurrentConsistentGroups;
-    vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
+    // 一个历史共视组只能与一个候选 KF 共视组构成一致性关系
+    vector<ConsistentGroup> vCurrentConsistentGroups;  //  当前共视组集   当前 KF 的候选 KF 共视组集
+    vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);  // 历史共视组是否满足一致性标志位  按照历史共视组顺序索引
+    // 遍历回环候选 KF 集
     for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
     {
-        KeyFrame* pCandidateKF = vpCandidateKFs[i];
+        KeyFrame* pCandidateKF = vpCandidateKFs[i];  // 候选 KFi
 
-        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
+        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();  // 候选 KFi 共视 KF 集
         spCandidateGroup.insert(pCandidateKF);
 
-        bool bEnoughConsistent = false;
-        bool bConsistentForSomeGroup = false;
+        bool bEnoughConsistent = false;  // 足够一致性
+        bool bConsistentForSomeGroup = false;  // 与某些组一致
+        // 遍历历史共视组集
         for(size_t iG=0, iendG=mvConsistentGroups.size(); iG<iendG; iG++)
         {
-            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;
+            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;  // 共视组 i
 
-            bool bConsistent = false;
+            bool bConsistent = false;  // 候选 KFi 与当前共视组 一致性标志位
+            // 当前候选 KF 与共视组一致性检测，即当前候选 KF 共视组与之前的共视组存在一致关系
+            // 遍历候选 KF 共视组中的 KF
             for(set<KeyFrame*>::iterator sit=spCandidateGroup.begin(), send=spCandidateGroup.end(); sit!=send;sit++)
             {
+                // 在共视组 i 中查询当前候选 KFi 共视组中的 KF
                 if(sPreviousGroup.count(*sit))
                 {
+                    // 只要有一个 KF 相同，就具备一致性
                     bConsistent=true;
                     bConsistentForSomeGroup=true;
                     break;
                 }
             }
 
+            // 候选 KFi 与当前共视组一致性成立
             if(bConsistent)
             {
-                int nPreviousConsistency = mvConsistentGroups[iG].second;
-                int nCurrentConsistency = nPreviousConsistency + 1;
+                int nPreviousConsistency = mvConsistentGroups[iG].second;  // 历史共视组一致性  即一致共视组数量
+                int nCurrentConsistency = nPreviousConsistency + 1;  // 当前候选 KF 共视组一致性
+                // 如果当前历史共视组没有对应到一致的候选 KF
                 if(!vbConsistentGroup[iG])
                 {
-                    ConsistentGroup cg = make_pair(spCandidateGroup,nCurrentConsistency);
+                    ConsistentGroup cg = make_pair(spCandidateGroup,nCurrentConsistency);  // 为当前候选 KF 创建共视组
                     vCurrentConsistentGroups.push_back(cg);
-                    vbConsistentGroup[iG]=true; //this avoid to include the same group more than once
+                    // 保证历史共视组不会与多个候选 KF 共视组构成一致关系
+                    vbConsistentGroup[iG]=true;  // this avoid to include the same group more than once
                 }
+                // 如果当前候选 KF 共视组一致性大于阈值，记录到成员变量中
                 if(nCurrentConsistency>=mnCovisibilityConsistencyTh && !bEnoughConsistent)
                 {
                     mvpEnoughConsistentCandidates.push_back(pCandidateKF);
-                    bEnoughConsistent=true; //this avoid to insert the same candidate more than once
+                    // 防止重复添加候选 KF
+                    bEnoughConsistent=true;  // this avoid to insert the same candidate more than once
                 }
             }
         }
 
+        // 如果当前候选 KF 共视组与历史共视组不构成一致关系，创建共视组，一致共视组数为 0
         // If the group is not consistent with any previous group insert with consistency counter set to zero
         if(!bConsistentForSomeGroup)
         {
-            ConsistentGroup cg = make_pair(spCandidateGroup,0);
+            ConsistentGroup cg = make_pair(spCandidateGroup,0);  // 创建共视组
             vCurrentConsistentGroups.push_back(cg);
         }
     }
 
     // Update Covisibility Consistent Groups
-    mvConsistentGroups = vCurrentConsistentGroups;
-
+    mvConsistentGroups = vCurrentConsistentGroups;  // 更新共视组
 
     // Add Current Keyframe to database
     mpKeyFrameDB->add(mpCurrentKF);
-
+    
+    // 如果没有满足一致性阈值的候选 KF，回环检测无效
     if(mvpEnoughConsistentCandidates.empty())
     {
         mpCurrentKF->SetErase();
@@ -237,19 +273,20 @@ bool LoopClosing::DetectLoop()
     }
     else
     {
+        // 注意，如果回环检测成功，当前 KF 保持不可清除状态
         return true;
     }
 
+    // 以下代码冗余
     mpCurrentKF->SetErase();
     return false;
 }
 
-/// @brief 计算 Sim3 相似变幻
+/// @brief 计算 Sim3 变换
 /// @return 
 bool LoopClosing::ComputeSim3()
 {
     // For each consistent loop candidate we try to compute a Sim3
-
     const int nInitialCandidates = mvpEnoughConsistentCandidates.size();
 
     // We compute first ORB matches for each candidate
@@ -422,6 +459,7 @@ void LoopClosing::CorrectLoop()
 {
     cout << "Loop detected!" << endl;
 
+    //
     // Send a stop signal to Local Mapping
     // Avoid new keyframes are inserted while correcting the loop
     mpLocalMapper->RequestStop();
@@ -604,12 +642,13 @@ void LoopClosing::CorrectLoop()
     mLastLoopKFid = mpCurrentKF->mnId;   
 }
 
-/// @brief 搜寻并融合地图点
+/// @brief 搜索并融合地图点
 /// @param CorrectedPosesMap 
 void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
 {
     ORBmatcher matcher(0.8);
 
+    //
     for(KeyFrameAndPose::const_iterator mit=CorrectedPosesMap.begin(), mend=CorrectedPosesMap.end(); mit!=mend;mit++)
     {
         KeyFrame* pKF = mit->first;
@@ -634,44 +673,15 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
     }
 }
 
-/// @brief 请求重置
-void LoopClosing::RequestReset()
-{
-    {
-        unique_lock<mutex> lock(mMutexReset);
-        mbResetRequested = true;
-    }
-
-    while(1)
-    {
-        {
-        unique_lock<mutex> lock2(mMutexReset);
-        if(!mbResetRequested)
-            break;
-        }
-        usleep(5000);
-    }
-}
-
-/// @brief 如果重置被请求，重置
-void LoopClosing::ResetIfRequested()
-{
-    unique_lock<mutex> lock(mMutexReset);
-    if(mbResetRequested)
-    {
-        mlpLoopKeyFrameQueue.clear();
-        mLastLoopKFid=0;
-        mbResetRequested=false;
-    }
-}
-
 /// @brief 运行全局 BA
-/// @param nLoopKF 
+/// @param nLoopKF 回环 KF id
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
 {
     cout << "Starting Global Bundle Adjustment" << endl;
 
     int idx =  mnFullBAIdx;
+
+    // 全局 BA
     Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
 
     // Update all MapPoints and KeyFrames
@@ -773,6 +783,39 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     }
 }
 
+//////////////////////////////////////////////////////////////////////////// 标志位设置与检查
+
+/// @brief 请求重置
+void LoopClosing::RequestReset()
+{
+    {
+        unique_lock<mutex> lock(mMutexReset);
+        mbResetRequested = true;
+    }
+
+    while(1)
+    {
+        {
+        unique_lock<mutex> lock2(mMutexReset);
+        if(!mbResetRequested)
+            break;
+        }
+        usleep(5000);
+    }
+}
+
+/// @brief 重置检查
+void LoopClosing::ResetIfRequested()
+{
+    unique_lock<mutex> lock(mMutexReset);
+    if(mbResetRequested)
+    {
+        mlpLoopKeyFrameQueue.clear();
+        mLastLoopKFid=0;
+        mbResetRequested=false;
+    }
+}
+
 /// @brief 请求终止
 void LoopClosing::RequestFinish()
 {
@@ -780,7 +823,7 @@ void LoopClosing::RequestFinish()
     mbFinishRequested = true;
 }
 
-/// @brief 检查终止
+/// @brief 终止检查
 /// @return 
 bool LoopClosing::CheckFinish()
 {
@@ -795,7 +838,7 @@ void LoopClosing::SetFinish()
     mbFinished = true;
 }
 
-/// @brief 是否被终止
+/// @brief 是否已终止
 /// @return 
 bool LoopClosing::isFinished()
 {

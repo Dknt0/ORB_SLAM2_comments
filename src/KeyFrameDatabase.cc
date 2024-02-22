@@ -44,7 +44,7 @@ void KeyFrameDatabase::add(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutex);
 
-    // 遍历这个关键帧的视觉词汇向量
+    // 遍历这个关键帧的视觉词汇向量，填充逆文件向量
     for(DBoW2::BowVector::const_iterator vit= pKF->mBowVec.begin(), vend=pKF->mBowVec.end(); vit!=vend; vit++)
         mvInvertedFile[vit->first].push_back(pKF);  // 在对应单词位置加入关键帧
 }
@@ -85,7 +85,7 @@ void KeyFrameDatabase::clear()
 /// @brief 检测回环候选关键帧
 /// @param pKF 关键帧
 /// @param minScore 最小相似性分数
-/// @return 候选关键帧向量
+/// @return 候选关键帧向量  无序
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
 {
     set<KeyFrame*> spConnectedKeyFrames = pKF->GetConnectedKeyFrames();  // 共视关键帧集合

@@ -105,13 +105,13 @@ public:
     int mnTrackScaleLevel;  // 金字塔尺度预测级别
     float mTrackViewCos;  // 视角余弦
     /// 
-    long unsigned int mnTrackReferenceForFrame; // 参考帧索引
-    long unsigned int mnLastFrameSeen; // 最后一次观测帧索引
+    long unsigned int mnTrackReferenceForFrame; // Tracking 中作为局部 MP 时，当前 F 序号
+    long unsigned int mnLastFrameSeen; // 最后一次被观测 帧索引
 
     // Variables used by local mapping
     /* LocalMapping 中用到的变量 */
     long unsigned int mnBALocalForKF;  // 局部 BA 优化关键帧序号
-    long unsigned int mnFuseCandidateForKF;  // 关键帧索引?
+    long unsigned int mnFuseCandidateForKF;  // LocalMapping 中进行近邻 MP 匹配融合时，当前 KF 序号
 
     // Variables used by loop closing
     /* LoopClosing 中用到的变量 */

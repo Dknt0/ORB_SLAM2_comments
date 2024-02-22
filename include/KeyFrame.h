@@ -164,8 +164,8 @@ public:
 
     // Variables used by the tracking
     // Tracking 中用到的变量
-    long unsigned int mnTrackReferenceForFrame;  // ?
-    long unsigned int mnFuseTargetForKF;  // ?
+    long unsigned int mnTrackReferenceForFrame;  // 作为 Tracking 局部地图 KF 时，当前 F 序号
+    long unsigned int mnFuseTargetForKF;  // LocalMapping 中进行近邻 MP 匹配融合时，当前 KF 序号
     long unsigned int mnBALocalForKF;  // 作为局部关键帧时，局部 BA 优化关键帧序号
     long unsigned int mnBAFixedForKF;  // 作为固定关键帧时，局部 BA 优化关键帧序号
 
@@ -255,8 +255,8 @@ protected:
 
     // 共视图相关
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;  // 共视映射 map<pKeyFrame, weight>  weight 代表共同观测到多少个地图点  包含全部共视关系
-    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;  // 有序共视关键帧向量  大于阈值的共视关系
-    std::vector<int> mvOrderedWeights;  // 有序权重向量  大于阈值的共视关系
+    std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;  // 有序共视关键帧向量  仅包含共视大于 15 的 KF
+    std::vector<int> mvOrderedWeights;  // 有序权重向量  仅包含共视大于 15 的 KF
 
     // Spanning Tree and Loop Edges
     // 生成树与回环边相关

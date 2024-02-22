@@ -42,31 +42,32 @@ class LocalMapping
 public:
     LocalMapping(Map* pMap, const float bMonocular);
 
-    void SetLoopCloser(LoopClosing* pLoopCloser);
-
-    void SetTracker(Tracking* pTracker);
-
-    // Main function
     void Run();
-
     void InsertKeyFrame(KeyFrame* pKF);
 
-    // Thread Synch
+    void SetLoopCloser(LoopClosing* pLoopCloser);
+    void SetTracker(Tracking* pTracker);
+
+    /// 请求接口
+
     void RequestStop();
     void RequestReset();
-    bool Stop();
+    void RequestFinish();
+    bool SetNotStop(bool flag);
+    void SetAcceptKeyFrames(bool flag);
+    void InterruptBA();
     void Release();
+
+    /// 查询接口
+
+    bool Stop();
     bool isStopped();
     bool stopRequested();
     bool AcceptKeyFrames();
-    void SetAcceptKeyFrames(bool flag);
-    bool SetNotStop(bool flag);
-
-    void InterruptBA();
-
-    void RequestFinish();
     bool isFinished();
 
+    /// @brief 查询 KF 队列长度
+    /// @return 
     int KeyframesInQueue(){
         unique_lock<std::mutex> lock(mMutexNewKFs);
         return mlNewKeyFrames.size();
@@ -74,53 +75,55 @@ public:
 
 protected:
 
+    /// 内部功能函数
+
     bool CheckNewKeyFrames();
     void ProcessNewKeyFrame();
     void CreateNewMapPoints();
-
     void MapPointCulling();
     void SearchInNeighbors();
-
     void KeyFrameCulling();
 
-    cv::Mat ComputeF12(KeyFrame* &pKF1, KeyFrame* &pKF2);
+    /// 数学工具
 
+    cv::Mat ComputeF12(KeyFrame* &pKF1, KeyFrame* &pKF2);
     cv::Mat SkewSymmetricMatrix(const cv::Mat &v);
 
-    bool mbMonocular;
-
     void ResetIfRequested();
-    bool mbResetRequested;
-    std::mutex mMutexReset;
-
     bool CheckFinish();
     void SetFinish();
-    bool mbFinishRequested;
-    bool mbFinished;
-    std::mutex mMutexFinish;
 
-    Map* mpMap;
+    /* ORB 中其他对象指针 */
+    bool mbMonocular;  // 单目标志位
+    Map* mpMap;  // 地图
+    Tracking* mpTracker;  // 追踪器
+    LoopClosing* mpLoopCloser;  // 回环检测器
 
-    LoopClosing* mpLoopCloser;
-    Tracking* mpTracker;
+    /* KF 与 MP */
+    std::list<KeyFrame*> mlNewKeyFrames;  // 新 KF 队列
+    KeyFrame* mpCurrentKeyFrame;  // 当前 KF
+    std::list<MapPoint*> mlpRecentAddedMapPoints;  // 新增 MP 集
+    std::mutex mMutexNewKFs;  // 新增 KF 互斥锁
 
-    std::list<KeyFrame*> mlNewKeyFrames;
+    /* 重置相关 */
+    bool mbResetRequested;  // 重置请求标志位
+    std::mutex mMutexReset;  // 重置互斥锁
 
-    KeyFrame* mpCurrentKeyFrame;
+    /* 终止相关 */
+    bool mbFinishRequested;  // 终止请求标志位
+    bool mbFinished;  // 终止标志位
+    std::mutex mMutexFinish;  // 终止互斥锁
 
-    std::list<MapPoint*> mlpRecentAddedMapPoints;
+    /* 暂停相关 */
+    bool mbStopped;  // 暂停标志位
+    bool mbStopRequested;  // 暂停请求标志位
+    bool mbNotStop;  // 拒绝暂停标志位
+    std::mutex mMutexStop;  // 暂停互斥锁
 
-    std::mutex mMutexNewKFs;
-
-    bool mbAbortBA;
-
-    bool mbStopped;
-    bool mbStopRequested;
-    bool mbNotStop;
-    std::mutex mMutexStop;
-
-    bool mbAcceptKeyFrames;
-    std::mutex mMutexAccept;
+    /* KF 接收相关 */
+    bool mbAbortBA;  // 中断 BA 标志位  控制 g2o 中断
+    bool mbAcceptKeyFrames;  // 可以接受 KF 标志位
+    std::mutex mMutexAccept;  // 接收 KF 互斥锁
 };
 
 } //namespace ORB_SLAM

@@ -1324,9 +1324,10 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
     return nmatches;
 }
 
-/// @brief 用于三角化新地图点  BoW  检查对极约束
-/// @param pKF1 关键帧 1
-/// @param pKF2 关键帧 2
+/// @brief 三角化匹配  检查对极约束的词袋匹配
+///     LocalMapping::CreateNewMapPoints()
+/// @param pKF1 关键帧 1  当前 KF
+/// @param pKF2 关键帧 2  近邻 KF
 /// @param F12 基本矩阵
 /// @param vMatchedPairs 匹配点对  vector<pair<KF1 KP idx, KF2 KP idx>>
 /// @param bOnlyStereo 仅双目点标志位
@@ -1380,7 +1381,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                 MapPoint* pMP1 = pKF1->GetMapPoint(idx1);  // KF1 地图点
                 
                 // If there is already a MapPoint skip
-                // 如果 KF1 KP 已经匹配到 MP 跳过
+                //// 如果 KF1 KP 已经匹配到 MP 跳过
                 if(pMP1)
                     continue;
 
@@ -1517,9 +1518,10 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
 
 /////////////////////////////////////////////////////////////////////////////////  地图点融合
 
-/// @brief 匹配地图点与关键帧，融合重复地图点
+/// @brief 匹配地图点与关键帧，融合重复地图点  局部建图地图点融合
+///     LocalMapping::SearchInNeighbors()
 /// @param pKF 关键帧
-/// @param vpMapPoints 新地图点集
+/// @param vpMapPoints 近邻地图点集
 /// @param th 搜索窗口范围倍数
 /// @return 添加、融合的地图点数量
 int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const float th)
@@ -1538,12 +1540,13 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
 
     int nFused=0;  // 新添加、融合的地图点
 
-    const int nMPs = vpMapPoints.size();  // 地图点总数
+    const int nMPs = vpMapPoints.size();  // 近邻地图点总数
 
+    /* 寻找 MP 与 KF 的匹配 */
     // 遍历地图点，寻找匹配关键点
     for(int i=0; i<nMPs; i++)
     {
-        MapPoint* pMP = vpMapPoints[i];  // 地图点
+        MapPoint* pMP = vpMapPoints[i];  // 近邻地图点
 
         // 如果地图点观测有效、不为坏点，且没有被关键帧观测到
         if(!pMP)

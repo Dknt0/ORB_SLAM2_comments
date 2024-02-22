@@ -102,7 +102,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     SetPose(F.mTcw);
 }
 
-/// @brief 计算词袋表达  从 Frame 生成时已经具备词袋表达了，还需要额外调用吗？
+/// @brief 计算词袋表达
 void KeyFrame::ComputeBoW()
 {
     if(mBowVec.empty() || mFeatVec.empty())
@@ -252,7 +252,7 @@ void KeyFrame::UpdateBestCovisibles()
 }
 
 /// @brief 获取共视关键帧集合
-/// @return 
+/// @return 全部共视 KF
 set<KeyFrame*> KeyFrame::GetConnectedKeyFrames()
 {
     unique_lock<mutex> lock(mMutexConnections);
@@ -262,7 +262,7 @@ set<KeyFrame*> KeyFrame::GetConnectedKeyFrames()
     return s;
 }
 
-/// @brief 获取有序共视关键帧向量
+/// @brief 获取有序共视关键帧向量  仅包含共视大于 15 的 KF
 /// @return 
 vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFrames()
 {
@@ -607,14 +607,14 @@ set<KeyFrame*> KeyFrame::GetLoopEdges()
 
 /////////////////////////////////////////////////////////////////// 标志位设置相关函数
 
-/// @brief 设置为不清除
+/// @brief 设置为不可清除  LoopClosing 中使用，避免 KF 在回环检测中被删除
 void KeyFrame::SetNotErase()
 {
     unique_lock<mutex> lock(mMutexConnections);
     mbNotErase = true;
 }
 
-/// @brief 设置为清除
+/// @brief 设置为可清除  LoopClosing 中完成回环检测后使用
 void KeyFrame::SetErase()
 {
     {
@@ -654,7 +654,7 @@ void KeyFrame::SetBadFlag()
         if(mvpMapPoints[i])
             mvpMapPoints[i]->EraseObservation(this);
 
-    /* 3.删除生成树中当前帧的观测信息 */
+    /* 3.删除生成树中当前帧的观测信息，更新生成树 */
     {
         unique_lock<mutex> lock(mMutexConnections);
         unique_lock<mutex> lock1(mMutexFeatures);
@@ -739,7 +739,7 @@ void KeyFrame::SetBadFlag()
         mbBad = true;  // 坏点
     }
 
-
+    /* 4.从地图、KF 数据库中删除 */
     mpMap->EraseKeyFrame(this);  // 从地图中删除
     mpKeyFrameDB->erase(this);  // 从关键帧数据库中删除
 }

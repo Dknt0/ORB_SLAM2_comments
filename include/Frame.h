@@ -168,7 +168,7 @@ public:
     // MapPoints associated to keypoints, NULL pointer if no association.
     std::vector<MapPoint*> mvpMapPoints;  // 关联到特征点的地图点
     // Flag to identify outlier associations.
-    std::vector<bool> mvbOutlier;  // 关键点外点标志位
+    std::vector<bool> mvbOutlier;  // 关键点外点标志位  仅在存在 MP 观测时使用  在 PoseOptimization 使用
     // Undistorted Image Bounds (computed once).
     // 去畸变图像边界
     static float mnMinX;  // 去畸变后左边界

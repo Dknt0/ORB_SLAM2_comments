@@ -45,105 +45,102 @@ class LoopClosing
 {
 public:
 
-    typedef pair<set<KeyFrame*>,int> ConsistentGroup;    
-    typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
-        Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > > KeyFrameAndPose;
+    typedef pair<set<KeyFrame*>,int> ConsistentGroup;  // 共视组  pair<共视 KF 集合, 累积一致性>  共视组累积一致性指包含相同 KF 的共视组的数量
 
+    // 下述内存申请器用于为 Eigen 矩阵申请对齐的内存，加速运算
+    typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
+        Eigen::aligned_allocator<std::pair<KeyFrame *const, g2o::Sim3> > > KeyFrameAndPose;  // 位姿映射  map<KF, Sim3, 比较器, 内存申请器>
+    
 public:
 
     LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc,const bool bFixScale);
 
-    void SetTracker(Tracking* pTracker);
-
-    void SetLocalMapper(LocalMapping* pLocalMapper);
-
-    // Main function
     void Run();
-
     void InsertKeyFrame(KeyFrame *pKF);
 
-    void RequestReset();
-
-    // This function will run in a separate thread
     void RunGlobalBundleAdjustment(unsigned long nLoopKF);
 
+    void SetTracker(Tracking* pTracker);
+    void SetLocalMapper(LocalMapping* pLocalMapper);
+
+    void RequestFinish();
+    void RequestReset();
+
+    bool isFinished();
+
+    /// @brief 是否正在运行全局 BA
+    /// @return 
     bool isRunningGBA(){
         unique_lock<std::mutex> lock(mMutexGBA);
         return mbRunningGBA;
     }
+
+    /// @brief 全局 BA 是否结束
+    /// @return 
     bool isFinishedGBA(){
         unique_lock<std::mutex> lock(mMutexGBA);
         return mbFinishedGBA;
     }   
 
-    void RequestFinish();
-
-    bool isFinished();
-
+    // Eigen 内存对齐宏
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 protected:
 
-    bool CheckNewKeyFrames();
-
     bool DetectLoop();
+    void CorrectLoop();
+    void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
 
     bool ComputeSim3();
 
-    void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
-
-    void CorrectLoop();
-
+    bool CheckNewKeyFrames();
     void ResetIfRequested();
-    bool mbResetRequested;
-    std::mutex mMutexReset;
-
     bool CheckFinish();
     void SetFinish();
-    bool mbFinishRequested;
-    bool mbFinished;
-    std::mutex mMutexFinish;
 
-    Map* mpMap;
-    Tracking* mpTracker;
+    /* ORB 中其他模块 */
+    Map* mpMap;  // 地图
+    Tracking* mpTracker;  // 追踪器
+    LocalMapping *mpLocalMapper;  // 局部建图器
+    KeyFrameDatabase* mpKeyFrameDB;  // 关键帧数据库
+    ORBVocabulary* mpORBVocabulary;  // 视觉字典
 
-    KeyFrameDatabase* mpKeyFrameDB;
-    ORBVocabulary* mpORBVocabulary;
+    /* 待检测 KF 相关 */
+    std::list<KeyFrame*> mlpLoopKeyFrameQueue;  // 回环 KF 队列
+    KeyFrame* mpCurrentKF;  // 当前 KF
+    KeyFrame* mpMatchedKF;  // 回环匹配 KF?
+    std::mutex mMutexLoopQueue;  // 回环队列互斥锁
 
-    LocalMapping *mpLocalMapper;
+    /* 共视组相关 */
+    float mnCovisibilityConsistencyTh;  // 共视一致性阈值  =3
+    std::vector<ConsistentGroup> mvConsistentGroups;  // 历史共视组集  仅在回环检测中使用  vector<pair<共视 KF 集合, 与其他组的共视数量>>  数据存储策略？
+    std::vector<KeyFrame*> mvpEnoughConsistentCandidates;  // 满足一致性阈值的候选 KF 集
 
-    std::list<KeyFrame*> mlpLoopKeyFrameQueue;
+    /* 当前 KF 回环相关 */
+    std::vector<KeyFrame*> mvpCurrentConnectedKFs;  // 当前 KF 近邻 KF 集?
+    std::vector<MapPoint*> mvpCurrentMatchedPoints;  // 当前 KF MP 匹配集?
+    std::vector<MapPoint*> mvpLoopMapPoints;  // 闭环 MP 集?
+    cv::Mat mScw;  // Scw
+    g2o::Sim3 mg2oScw;  // 优化后 Scw
 
-    std::mutex mMutexLoopQueue;
+    long unsigned int mLastLoopKFid;  // 上一次闭环 KF idx
 
-    // Loop detector parameters
-    float mnCovisibilityConsistencyTh;
+    /* 标志位 */
+    bool mbResetRequested;  // 重置请求标志位
+    std::mutex mMutexReset;  // 重置互斥锁
 
-    // Loop detector variables
-    KeyFrame* mpCurrentKF;
-    KeyFrame* mpMatchedKF;
-    std::vector<ConsistentGroup> mvConsistentGroups;
-    std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
-    std::vector<KeyFrame*> mvpCurrentConnectedKFs;
-    std::vector<MapPoint*> mvpCurrentMatchedPoints;
-    std::vector<MapPoint*> mvpLoopMapPoints;
-    cv::Mat mScw;
-    g2o::Sim3 mg2oScw;
+    bool mbFinishRequested;  // 终止请求标志位
+    bool mbFinished;  // 终止标志位
+    std::mutex mMutexFinish;  // 终止互斥锁
 
-    long unsigned int mLastLoopKFid;
+    bool mbRunningGBA;  // 全局 BA 运行标志位
+    bool mbFinishedGBA;  // 全局 BA 结束标志位
+    bool mbStopGBA;  // 暂停全局 BA  控制 g2o 中断
+    std::thread* mpThreadGBA;  // 全局 BA 线程
+    std::mutex mMutexGBA;  // 全局 BA 的互斥锁
 
-    // Variables related to Global Bundle Adjustment
-    bool mbRunningGBA;
-    bool mbFinishedGBA;
-    bool mbStopGBA;
-    std::mutex mMutexGBA;
-    std::thread* mpThreadGBA;
-
-    // Fix scale in the stereo/RGB-D case
-    bool mbFixScale;
-
-
-    bool mnFullBAIdx;
+    bool mbFixScale;  // 固定尺度标志位
+    bool mnFullBAIdx;  // 全局 BA 优化次数
 };
 
 } //namespace ORB_SLAM

@@ -133,9 +133,8 @@ protected:
     void UpdateLastFrame();
 
     void UpdateLocalMap();
-    void UpdateLocalPoints();
     void UpdateLocalKeyFrames();
-
+    void UpdateLocalPoints();
     void SearchLocalPoints();
 
     void FreeInitializer();
@@ -176,7 +175,7 @@ protected:
     bool mbRGB;  // 彩色图通道顺序  true-RGB, false-BGR
 
     /* 追踪过程变量 */
-    int mnMatchesInliers;  // 当前帧匹配 KP 数量
+    int mnMatchesInliers;  // 当前帧匹配 KP 数量  局部地图匹配与 KF 判断中使用
     KeyFrame* mpLastKeyFrame;  // 上一 KF
     Frame mLastFrame;  // 上一 F
     unsigned int mnLastKeyFrameId;  // 上一个 KF id
@@ -184,7 +183,7 @@ protected:
     cv::Mat mVelocity;  // 两帧间的相对位姿 上一帧相对当前帧  Tcccl
 
     KeyFrame* mpReferenceKF;  // 当前参考 KF
-    list<MapPoint*> mlpTemporalPoints;  // 临时 MP
+    list<MapPoint*> mlpTemporalPoints;  // 临时 MP  用于 VIO 帧间匹配
     // 局部地图
     std::vector<KeyFrame*> mvpLocalKeyFrames;  // 局部地图 KF
     std::vector<MapPoint*> mvpLocalMapPoints;  // 局部地图 MP

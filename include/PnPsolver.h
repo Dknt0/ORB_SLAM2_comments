@@ -62,6 +62,8 @@ namespace ORB_SLAM2
 // EPnP 算法
 // https://github.com/cvlab-epfl/EPnP/
 
+// Tracking::Relocalization
+
 /// @brief PnP 求解器
 class PnPsolver {
  public:
