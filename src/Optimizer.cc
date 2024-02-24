@@ -38,6 +38,7 @@ namespace ORB_SLAM2
 {
 
 /// @brief 全局光束法平差
+///     LoopClosing::RunGlobalBundleAdjustment
 /// @param pMap 地图
 /// @param nIterations 迭代次数
 /// @param pbStopFlag 停止标志位
@@ -213,7 +214,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
     /* 5.从优化结果恢复 KF, MP 数据 */
     // Recover optimized data
 
-    //Keyframes
+    // Keyframes
     // 恢复关键帧数据
     for(size_t i=0; i<vpKFs.size(); i++)
     {
@@ -236,7 +237,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
         }
     }
 
-    //Points
+    // Points
     // 恢复地图点数据
     for(size_t i=0; i<vpMP.size(); i++)
     {
@@ -913,7 +914,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
 /// @brief 本质图优化  LoopClosing 中调用
 /// @param pMap 地图
-/// @param pLoopKF 回环关键帧  与 pLoopKF 匹配
+/// @param pLoopKF 回环匹配关键帧  与 pLoopKF 匹配
 /// @param pCurKF 当前关键帧
 /// @param NonCorrectedSim3 未修正 Sim3 映射<关键帧, Sim3>
 /// @param CorrectedSim3 已修正 Sim3 映射<关键帧, Sim3>
@@ -1221,6 +1222,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 }
 
 /// @brief Sim3 优化  检查候选关键帧  1投2，2投1  ICP 问题迭代解
+///     LoopClosing::ComputeSim3
 /// @param pKF1 当前关键帧
 /// @param pKF2 候选关键帧
 /// @param vpMatches1 KF1 对 KF2 MP 匹配  按照 KF1 KP 索引

@@ -155,6 +155,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
 }
 
 /// @brief 匹配帧与相似投影后地图点  Loop Closing 中用于回环检测
+///     LoopClosing::ComputeSim3
 /// @param pKF 关键帧
 /// @param Scw 相似变换矩阵
 /// @param vpPoints 候选地图点集
@@ -626,7 +627,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
     return nmatches;
 }
 
-/// @brief 给出帧间相似变换，搜索两个关键帧的匹配点对
+/// @brief Sim3 互投影匹配 给出帧间相似变换，搜索两个关键帧的匹配点对
+///     LoopClosing::ComputeSim3
 /// @param pKF1 关键帧1
 /// @param pKF2 关键帧2
 /// @param vpMatches12 已匹配的地图点 按照 KF1 关键点索引 结果也存放于这个向量中
@@ -704,7 +706,7 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
         if(p3Dc2.at<float>(2)<0.0)
             continue;
 
-        // 计算在 KF2 中投影像素坐标  Sim3 会不会影响投影结果尺度？
+        // 计算在 KF2 中投影像素坐标
         const float invz = 1.0/p3Dc2.at<float>(2);
         const float x = p3Dc2.at<float>(0)*invz;
         const float y = p3Dc2.at<float>(1)*invz;
@@ -1033,10 +1035,11 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
     return nmatches;  // 匹配点对
 }
 
-/// @brief 搜索关键帧 1 地图点和关键帧 2 关键点的匹配  基于视觉词汇约束暴力匹配  用于重定位和回环检测
+/// @brief 搜索 KF1 KP 和 KF2 KP 的匹配  只匹配关联到 MP 的 KP  基于视觉词汇约束暴力匹配  用于重定位和回环检测
+///     LoopClosing::ComputeSim3
 /// @param pKF1 关键帧 1
 /// @param pKF2 关键帧 2
-/// @param vpMatches12 地图点匹配   KF1 关键点匹配到 KF2 地图点  按 KF1 关键点索引
+/// @param vpMatches12 地图点匹配   KF1 MP 匹配到 KF2 MP  按 KF1 关键点索引
 /// @return 匹配点对数
 int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches12)
 {
@@ -1694,12 +1697,13 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
     return nFused;
 }
 
-/// @brief 给定相似变换，匹配地图点与关键帧  将需要融合的地图点放入向量，没有进行实际地图点融合
+/// @brief 回环地图点融合  给定相似变换，匹配地图点与关键帧  添加新的观测关系，将需要融合的地图点放入向量，没有进行实际地图点融合
+///     LoopClosing::SearchAndFuse
 /// @param pKF 关键帧
 /// @param Scw 相似变换
 /// @param vpPoints 新地图点集
 /// @param th 搜索窗口范围倍数
-/// @param vpReplacePoint 替换地图点向量，需要融合的地图点输出到此向量中
+/// @param vpReplacePoint 需要替换的地图点  KF 观测的 MP，按照新 MP 顺序索引
 /// @return 添加、融合的地图点数量
 int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
 {

@@ -78,7 +78,7 @@ void Map::SetReferenceMapPoints(const vector<MapPoint *> &vpMPs)
     mvpReferenceMapPoints = vpMPs;
 }
 
-/// @brief 进行大改动
+/// @brief 通知新大改动
 void Map::InformNewBigChange()
 {
     unique_lock<mutex> lock(mMutexMap);

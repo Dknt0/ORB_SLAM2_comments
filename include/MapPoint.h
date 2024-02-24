@@ -115,11 +115,11 @@ public:
 
     // Variables used by loop closing
     /* LoopClosing 中用到的变量 */
-    long unsigned int mnLoopPointForKF;  // 关键帧索引? 本质图优化用到
-    long unsigned int mnCorrectedByKF;  // 关键帧索引? 本质图优化用到
-    long unsigned int mnCorrectedReference;  // 关键帧索引? 
+    long unsigned int mnLoopPointForKF;  // LoopClosing 中作为回环匹配 KF 附近局部 MP 时，当前 KF 序号
+    long unsigned int mnCorrectedByKF;  // LoopClosing 中作为当前 KF 局部 MP 进行位置修正时，当前 KF 序号
+    long unsigned int mnCorrectedReference;  // LoopClosing 中作为当前 KF 局部 MP 进行位置修正时，修正参考 KF 序号
     cv::Mat mPosGBA;  // 回环存在时，用于暂存全局 BA 的结果
-    long unsigned int mnBAGlobalForKF;  // 回环存在时，用于暂存回环关键帧 id
+    long unsigned int mnBAGlobalForKF;  // LoopClosing 运行全局 BA 时，当前回环 KF id
 
     static std::mutex mGlobalMutex;  // 特征点全局锁  注意，锁本身是全局变量
 

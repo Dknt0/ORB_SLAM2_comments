@@ -48,6 +48,7 @@ public:
     typedef pair<set<KeyFrame*>,int> ConsistentGroup;  // 共视组  pair<共视 KF 集合, 累积一致性>  共视组累积一致性指包含相同 KF 的共视组的数量
 
     // 下述内存申请器用于为 Eigen 矩阵申请对齐的内存，加速运算
+
     typedef map<KeyFrame*,g2o::Sim3,std::less<KeyFrame*>,
         Eigen::aligned_allocator<std::pair<KeyFrame *const, g2o::Sim3> > > KeyFrameAndPose;  // 位姿映射  map<KF, Sim3, 比较器, 内存申请器>
     
@@ -108,7 +109,7 @@ protected:
     /* 待检测 KF 相关 */
     std::list<KeyFrame*> mlpLoopKeyFrameQueue;  // 回环 KF 队列
     KeyFrame* mpCurrentKF;  // 当前 KF
-    KeyFrame* mpMatchedKF;  // 回环匹配 KF?
+    KeyFrame* mpMatchedKF;  // 匹配 KF
     std::mutex mMutexLoopQueue;  // 回环队列互斥锁
 
     /* 共视组相关 */
@@ -117,11 +118,11 @@ protected:
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;  // 满足一致性阈值的候选 KF 集
 
     /* 当前 KF 回环相关 */
-    std::vector<KeyFrame*> mvpCurrentConnectedKFs;  // 当前 KF 近邻 KF 集?
-    std::vector<MapPoint*> mvpCurrentMatchedPoints;  // 当前 KF MP 匹配集?
-    std::vector<MapPoint*> mvpLoopMapPoints;  // 闭环 MP 集?
-    cv::Mat mScw;  // Scw
-    g2o::Sim3 mg2oScw;  // 优化后 Scw
+    std::vector<KeyFrame*> mvpCurrentConnectedKFs;  // 当前 KF 局部范围内 KF  包括当前 KF 及其近邻 KF
+    std::vector<MapPoint*> mvpCurrentMatchedPoints;  // 当前 KF 对回环匹配 KF MP 匹配
+    std::vector<MapPoint*> mvpLoopMapPoints;  // 回环局部 MP  匹配 KF 局部范围内 MP
+    cv::Mat mScw;  // 当前 KF 位姿 Scw
+    g2o::Sim3 mg2oScw;  // 当前 KF 位姿 g2o Scw
 
     long unsigned int mLastLoopKFid;  // 上一次闭环 KF idx
 

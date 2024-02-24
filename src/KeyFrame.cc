@@ -119,7 +119,7 @@ void KeyFrame::ComputeBoW()
 
 /////////////////////////////////////////////////////////////////// 位姿相关函数
 
-/// @brief 设置位姿信息
+/// @brief 设置位姿信息  包括旋转、位置、光心位置等信息
 /// @param Tcw_ 
 void KeyFrame::SetPose(const cv::Mat &Tcw_)
 {

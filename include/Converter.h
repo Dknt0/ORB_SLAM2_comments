@@ -18,8 +18,6 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
-// 类似于 Common.h
-
 // ORB-SLAM2 中的矩阵、向量基本都是 cv::Mat 写的，而 g2o 基于 Eigen
 // 所以需要类型转换
 // ORB-SLAM3 中开始大量使用 Eigen

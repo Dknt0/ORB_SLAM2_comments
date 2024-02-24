@@ -188,7 +188,7 @@ public:
     // Loop Closing 中用到的变量
     cv::Mat mTcwGBA;  // 回环存在时，用于暂存全局 BA 的结果
     cv::Mat mTcwBefGBA;  // 位姿 cw ?
-    long unsigned int mnBAGlobalForKF;  // 回环存在时，用于暂存回环关键帧 id
+    long unsigned int mnBAGlobalForKF;  // LoopClosing 运行全局 BA 时，当前回环 KF id
 
     // Calibration parameters
     // 相机内参
