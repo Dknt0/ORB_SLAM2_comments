@@ -146,23 +146,23 @@ protected:
     bool mbVO;  // 纯定位模式追踪到 MP 数量不足标志位  这个状态为 false 是正常的定位模式
 
     /* ORB 中其他对象的指针 */
-    LocalMapping* mpLocalMapper;  // 局部建图
-    LoopClosing* mpLoopClosing;  // 回环检测
-    System* mpSystem;  // 系统
-    Viewer* mpViewer;  // 显示器
-    FrameDrawer* mpFrameDrawer;  // 帧绘制器
-    MapDrawer* mpMapDrawer;  // 地图绘制器
-    Initializer* mpInitializer;  // 单目初始化器
+    LocalMapping* mpLocalMapper = NULL;  // 局部建图
+    LoopClosing* mpLoopClosing = NULL;  // 回环检测
+    System* mpSystem = NULL;  // 系统
+    Viewer* mpViewer = NULL;  // 显示器
+    FrameDrawer* mpFrameDrawer = NULL;  // 帧绘制器
+    MapDrawer* mpMapDrawer = NULL;  // 地图绘制器
+    Initializer* mpInitializer = NULL;  // 单目初始化器
 
     /* ORB 特征提取器 */    
-    ORBextractor* mpORBextractorLeft;  // 左图提取器
-    ORBextractor* mpORBextractorRight;  // 右图提取器
-    ORBextractor* mpIniORBextractor;  // 单目初始化提取器
+    ORBextractor* mpORBextractorLeft = NULL;  // 左图提取器
+    ORBextractor* mpORBextractorRight = NULL;  // 右图提取器
+    ORBextractor* mpIniORBextractor = NULL;  // 单目初始化提取器
 
     /* 数据库 */
-    ORBVocabulary* mpORBVocabulary;  // 视觉字典
-    KeyFrameDatabase* mpKeyFrameDB;  // 关键帧数据库
-    Map* mpMap;  // 地图
+    ORBVocabulary* mpORBVocabulary = NULL;  // 视觉字典
+    KeyFrameDatabase* mpKeyFrameDB = NULL;  // 关键帧数据库
+    Map* mpMap = NULL;  // 地图
 
     /* 配置参数 */
     cv::Mat mK;  // 相机内参
@@ -176,13 +176,13 @@ protected:
 
     /* 追踪过程变量 */
     int mnMatchesInliers;  // 当前帧匹配 KP 数量  局部地图匹配与 KF 判断中使用
-    KeyFrame* mpLastKeyFrame;  // 上一 KF
+    KeyFrame* mpLastKeyFrame = NULL;  // 上一 KF
     Frame mLastFrame;  // 上一 F
     unsigned int mnLastKeyFrameId;  // 上一个 KF id
     unsigned int mnLastRelocFrameId;  // 上一次重定位 F id
     cv::Mat mVelocity;  // 两帧间的相对位姿 上一帧相对当前帧  Tcccl
 
-    KeyFrame* mpReferenceKF;  // 当前参考 KF
+    KeyFrame* mpReferenceKF = NULL;  // 当前参考 KF
     list<MapPoint*> mlpTemporalPoints;  // 临时 MP  用于 VIO 帧间匹配
     // 局部地图
     std::vector<KeyFrame*> mvpLocalKeyFrames;  // 局部地图 KF

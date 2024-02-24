@@ -141,7 +141,8 @@ protected:
     std::mutex mMutexGBA;  // 全局 BA 的互斥锁
 
     bool mbFixScale;  // 固定尺度标志位
-    bool mnFullBAIdx;  // 全局 BA 优化次数
+    // 源码中 mnFullBAIdx 是 bool，应该是写错了
+    int mnFullBAIdx;  // 全局 BA 优化次数
 };
 
 } //namespace ORB_SLAM

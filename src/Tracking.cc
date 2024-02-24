@@ -63,13 +63,13 @@ namespace ORB_SLAM2
           mSensor(sensor),
           mbOnlyTracking(false),
           mbVO(false),
-          mpORBVocabulary(pVoc),
-          mpKeyFrameDB(pKFDB),
-          mpInitializer(static_cast<Initializer*>(NULL)),
           mpSystem(pSys),
           mpViewer(NULL),
           mpFrameDrawer(pFrameDrawer),
           mpMapDrawer(pMapDrawer),
+          mpInitializer(static_cast<Initializer*>(NULL)),
+          mpORBVocabulary(pVoc),
+          mpKeyFrameDB(pKFDB),
           mpMap(pMap),
           mnLastRelocFrameId(0)
     {
