@@ -54,7 +54,7 @@ class Map {
   long unsigned KeyFramesInMap();
   long unsigned int GetMaxKFid();
 
-  vector<KeyFrame*>
+  std::vector<KeyFrame*>
       mvpKeyFrameOrigins;  // 关键帧原点  为啥是个向量，不应该只有一个吗?
 
   std::mutex mMutexMapUpdate;  // 地图更新锁
