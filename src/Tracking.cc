@@ -1475,6 +1475,8 @@ bool Tracking::Relocalization() {
       if (bNoMore || Tcw.empty()) {
         vbDiscarded[i] = true;
         nCandidates--;
+        // 源码没有下面这行。PnPsolver 求解失败时不应该继续计算，否则报段错误
+        continue;
       }
 
       // 记录位姿计算结果，作为优化初值使用
