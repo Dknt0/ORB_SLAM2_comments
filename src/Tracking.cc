@@ -834,7 +834,7 @@ bool Tracking::TrackReferenceKeyFrame() {
   return nmatchesMap >= 10;
 }
 
-/// @brief 更新上一帧
+/// @brief 更新上一帧，纯定位模式下创建临时 MP
 void Tracking::UpdateLastFrame() {
   // 为什么需要下面这个步骤，考虑到优化会改变结果？
   // Update pose according to reference keyframe
@@ -906,6 +906,7 @@ void Tracking::UpdateLastFrame() {
 bool Tracking::TrackWithMotionModel() {
   ORBmatcher matcher(0.9, true);
 
+  // 更新上一帧，纯定位模式下创建临时 MP
   // Update last frame pose according to its reference keyframe
   // Create "visual odometry" points if in Localization Mode
   UpdateLastFrame();

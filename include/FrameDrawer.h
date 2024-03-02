@@ -35,6 +35,8 @@ namespace ORB_SLAM2 {
 class Tracking;
 class Viewer;
 
+/// FrameDrawer 是在 OpenCV::Mat 上的操作
+
 /// @brief 帧绘制器
 class FrameDrawer {
  public:
@@ -50,19 +52,21 @@ class FrameDrawer {
   void DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText);
 
   // Info of the frame to be drawn
-  cv::Mat mIm;
-  int N;
-  vector<cv::KeyPoint> mvCurrentKeys;
-  vector<bool> mvbMap, mvbVO;
-  bool mbOnlyTracking;
-  int mnTracked, mnTrackedVO;
-  vector<cv::KeyPoint> mvIniKeys;
-  vector<int> mvIniMatches;
-  int mState;
+  cv::Mat mIm;  // 图片
+  int N;  // KP 数量
+  vector<cv::KeyPoint> mvCurrentKeys;  // 当前 KP
+  vector<bool> mvbMap;  // KP 匹配到 MP 标志位
+  vector<bool> mvbVO;  // KP 匹配到临时 MP 标志位
+  bool mbOnlyTracking;  // 纯定位模式
+  int mnTracked;  // 匹配到 MP KP 总数
+  int mnTrackedVO;  // 匹配到临时 MP KP 总数
+  vector<cv::KeyPoint> mvIniKeys;  // 初始 KP
+  vector<int> mvIniMatches;  // 初始匹配
+  int mState;  // Tracking State
 
   Map *mpMap;
 
-  std::mutex mMutex;
+  std::mutex mMutex;  // 互斥锁
 };
 
 }  // namespace ORB_SLAM2

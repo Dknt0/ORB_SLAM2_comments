@@ -35,16 +35,19 @@ FrameDrawer::FrameDrawer(Map *pMap) : mpMap(pMap) {
   mIm = cv::Mat(480, 640, CV_8UC3, cv::Scalar(0, 0, 0));
 }
 
+/// @brief 绘制图像，用于 GUI
+/// @return 绘制后的图像
 cv::Mat FrameDrawer::DrawFrame() {
-  cv::Mat im;
+  cv::Mat im;  // 图像
   vector<cv::KeyPoint>
-      vIniKeys;  // Initialization: KeyPoints in reference frame
+      vIniKeys;  // 初始化参考帧中 KP  仅初始化中使用  Initialization: KeyPoints in reference frame
   vector<int>
-      vMatches;  // Initialization: correspondeces with reference keypoints
-  vector<cv::KeyPoint> vCurrentKeys;  // KeyPoints in current frame
-  vector<bool> vbVO, vbMap;           // Tracked MapPoints in current frame
-  int state;                          // Tracking state
+      vMatches;  // 初始化匹配  仅初始化中使用  Initialization: correspondeces with reference keypoints
+  vector<cv::KeyPoint> vCurrentKeys;  // 当前帧 KP  KeyPoints in current frame
+  vector<bool> vbVO, vbMap;           // MP 匹配状态  Tracked MapPoints in current frame
+  int state;                          // 状态  Tracking state
 
+  // 复制变量
   // Copy variables within scoped mutex
   {
     unique_lock<mutex> lock(mMutex);
@@ -109,11 +112,16 @@ cv::Mat FrameDrawer::DrawFrame() {
   }
 
   cv::Mat imWithInfo;
+  // 绘制文字信息
   DrawTextInfo(im, state, imWithInfo);
 
   return imWithInfo;
 }
 
+/// @brief 绘制文字信息
+/// @param im 输入图像
+/// @param nState 
+/// @param imText 输出图像
 void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText) {
   stringstream s;
   if (nState == Tracking::NO_IMAGES_YET)
@@ -137,20 +145,22 @@ void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText) {
 
   int baseline = 0;
   cv::Size textSize =
-      cv::getTextSize(s.str(), cv::FONT_HERSHEY_PLAIN, 1, 1, &baseline);
+      cv::getTextSize(s.str(), cv::FONT_HERSHEY_PLAIN, 1, 1, &baseline);  // 文字大小
 
-  imText = cv::Mat(im.rows + textSize.height + 10, im.cols, im.type());
-  im.copyTo(imText.rowRange(0, im.rows).colRange(0, im.cols));
+  imText = cv::Mat(im.rows + textSize.height + 10, im.cols, im.type());  // 创建图像
+  im.copyTo(imText.rowRange(0, im.rows).colRange(0, im.cols));  // 复制图像信息
   imText.rowRange(im.rows, imText.rows) =
-      cv::Mat::zeros(textSize.height + 10, im.cols, im.type());
+      cv::Mat::zeros(textSize.height + 10, im.cols, im.type());  // 下方文字底色为黑色
   cv::putText(imText, s.str(), cv::Point(5, imText.rows - 5),
-              cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(255, 255, 255), 1, 8);
+              cv::FONT_HERSHEY_PLAIN, 1, cv::Scalar(255, 255, 255), 1, 8);  // 写字，文字为白色
 }
 
+/// @brief 更新帧绘制器信息
+/// @param pTracker 
 void FrameDrawer::Update(Tracking *pTracker) {
   unique_lock<mutex> lock(mMutex);
-  pTracker->mImGray.copyTo(mIm);
-  mvCurrentKeys = pTracker->mCurrentFrame.mvKeys;
+  pTracker->mImGray.copyTo(mIm);  // 拷贝 Tracking 中左图
+  mvCurrentKeys = pTracker->mCurrentFrame.mvKeys;  // 当前左图 KP
   N = mvCurrentKeys.size();
   mvbVO = vector<bool>(N, false);
   mvbMap = vector<bool>(N, false);

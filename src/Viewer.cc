@@ -62,12 +62,15 @@ Viewer::Viewer(System *pSystem, FrameDrawer *pFrameDrawer,
   mViewpointF = fSettings["Viewer.ViewpointF"];
 }
 
+/// @brief 运行  线程函数
 void Viewer::Run() {
   mbFinished = false;
   mbStopped = false;
 
+  // 创建窗口
   pangolin::CreateWindowAndBind("ORB-SLAM2: Map Viewer", 1024, 768);
 
+  // 设置 OpenGL 属性
   // 3D Mouse handler requires depth testing to be enabled
   glEnable(GL_DEPTH_TEST);
 
@@ -75,16 +78,22 @@ void Viewer::Run() {
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+  // 创建面板，定义 UI
   pangolin::CreatePanel("menu").SetBounds(0.0, 1.0, 0.0,
                                           pangolin::Attach::Pix(175));
-  pangolin::Var<bool> menuFollowCamera("menu.Follow Camera", true, true);
-  pangolin::Var<bool> menuShowPoints("menu.Show Points", true, true);
-  pangolin::Var<bool> menuShowKeyFrames("menu.Show KeyFrames", true, true);
-  pangolin::Var<bool> menuShowGraph("menu.Show Graph", true, true);
+  pangolin::Var<bool> menuFollowCamera("menu.Follow Camera", true,
+                                       true);  // 跟随相机 UI 标志位
+  pangolin::Var<bool> menuShowPoints("menu.Show Points", true,
+                                     true);  // 显示 MP UI 标志位
+  pangolin::Var<bool> menuShowKeyFrames("menu.Show KeyFrames", true,
+                                        true);  // 显示 KF UI 标志位
+  pangolin::Var<bool> menuShowGraph("menu.Show Graph", true,
+                                    true);  // 显示共视图 UI 标志位
   pangolin::Var<bool> menuLocalizationMode("menu.Localization Mode", false,
-                                           true);
-  pangolin::Var<bool> menuReset("menu.Reset", false, false);
+                                           true);  // 纯定位模式 UI 标志位
+  pangolin::Var<bool> menuReset("menu.Reset", false, false);  // 重置 UI 标志位
 
+  // 定义相机渲染对象
   // Define Camera Render Object (for view / scene browsing)
   pangolin::OpenGlRenderState s_cam(
       pangolin::ProjectionMatrix(1024, 768, mViewpointF, mViewpointF, 512, 389,
@@ -92,6 +101,7 @@ void Viewer::Run() {
       pangolin::ModelViewLookAt(mViewpointX, mViewpointY, mViewpointZ, 0, 0, 0,
                                 0.0, -1.0, 0.0));
 
+  // 创建交互视图
   // Add named OpenGL viewport to window and provide 3D Handler
   pangolin::View &d_cam = pangolin::CreateDisplay()
                               .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175),
@@ -103,46 +113,59 @@ void Viewer::Run() {
 
   cv::namedWindow("ORB-SLAM2: Current Frame");
 
-  bool bFollow = true;
-  bool bLocalizationMode = false;
+  bool bFollow = true;             // 跟随标志位
+  bool bLocalizationMode = false;  // 定位标志位
 
   while (1) {
+    /* Pangolin 显示 */
+    // 每一帧都是重复绘制的
+    // 清空颜色、深度缓存
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    // 获取当前相机位姿
     mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
 
+    // 相机跟随设置
     if (menuFollowCamera && bFollow) {
+      // 面板为跟随，标志位为跟随
       s_cam.Follow(Twc);
     } else if (menuFollowCamera && !bFollow) {
+      // 开启跟随
       s_cam.SetModelViewMatrix(pangolin::ModelViewLookAt(
           mViewpointX, mViewpointY, mViewpointZ, 0, 0, 0, 0.0, -1.0, 0.0));
       s_cam.Follow(Twc);
       bFollow = true;
     } else if (!menuFollowCamera && bFollow) {
+      // 关闭跟随
       bFollow = false;
     }
 
+    // 纯定位模式设置
     if (menuLocalizationMode && !bLocalizationMode) {
+      // 开启纯定位模式
       mpSystem->ActivateLocalizationMode();
       bLocalizationMode = true;
     } else if (!menuLocalizationMode && bLocalizationMode) {
+      // 关闭纯定位模式
       mpSystem->DeactivateLocalizationMode();
       bLocalizationMode = false;
     }
 
     d_cam.Activate(s_cam);
     glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
-    mpMapDrawer->DrawCurrentCamera(Twc);
+    mpMapDrawer->DrawCurrentCamera(Twc);  // 绘制相机
     if (menuShowKeyFrames || menuShowGraph)
-      mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);
-    if (menuShowPoints) mpMapDrawer->DrawMapPoints();
+      mpMapDrawer->DrawKeyFrames(menuShowKeyFrames, menuShowGraph);  // 绘制 KF
+    if (menuShowPoints) mpMapDrawer->DrawMapPoints();  // 绘制 MP
 
     pangolin::FinishFrame();
 
+    /* OpenCV 显示 */
     cv::Mat im = mpFrameDrawer->DrawFrame();
     cv::imshow("ORB-SLAM2: Current Frame", im);
     cv::waitKey(mT);
 
+    // 检查是否重置
     if (menuReset) {
       menuShowGraph = true;
       menuShowKeyFrames = true;
@@ -168,36 +191,47 @@ void Viewer::Run() {
   SetFinish();
 }
 
+/// @brief 请求终止
 void Viewer::RequestFinish() {
   unique_lock<mutex> lock(mMutexFinish);
   mbFinishRequested = true;
 }
 
+/// @brief 检查终止
+/// @return
 bool Viewer::CheckFinish() {
   unique_lock<mutex> lock(mMutexFinish);
   return mbFinishRequested;
 }
 
+/// @brief 设置终止
 void Viewer::SetFinish() {
   unique_lock<mutex> lock(mMutexFinish);
   mbFinished = true;
 }
 
+/// @brief 是否已终止
+/// @return
 bool Viewer::isFinished() {
   unique_lock<mutex> lock(mMutexFinish);
   return mbFinished;
 }
 
+/// @brief 请求暂停
 void Viewer::RequestStop() {
   unique_lock<mutex> lock(mMutexStop);
   if (!mbStopped) mbStopRequested = true;
 }
 
+/// @brief 是否已暂停
+/// @return
 bool Viewer::isStopped() {
   unique_lock<mutex> lock(mMutexStop);
   return mbStopped;
 }
 
+/// @brief 按请求暂停
+/// @return
 bool Viewer::Stop() {
   unique_lock<mutex> lock(mMutexStop);
   unique_lock<mutex> lock2(mMutexFinish);
@@ -213,6 +247,7 @@ bool Viewer::Stop() {
   return false;
 }
 
+/// @brief 释放
 void Viewer::Release() {
   unique_lock<mutex> lock(mMutexStop);
   mbStopped = false;

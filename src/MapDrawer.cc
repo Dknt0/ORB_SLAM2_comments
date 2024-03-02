@@ -43,17 +43,19 @@ MapDrawer::MapDrawer(Map *pMap, const string &strSettingPath) : mpMap(pMap) {
   mCameraLineWidth = fSettings["Viewer.CameraLineWidth"];
 }
 
+/// @brief 绘制地图点
 void MapDrawer::DrawMapPoints() {
-  const vector<MapPoint *> &vpMPs = mpMap->GetAllMapPoints();
-  const vector<MapPoint *> &vpRefMPs = mpMap->GetReferenceMapPoints();
-
+  const vector<MapPoint *> &vpMPs = mpMap->GetAllMapPoints();  // 地图点
+  const vector<MapPoint *> &vpRefMPs = mpMap->GetReferenceMapPoints();  // 局部地图点
+  
   set<MapPoint *> spRefMPs(vpRefMPs.begin(), vpRefMPs.end());
 
   if (vpMPs.empty()) return;
 
+  /* 绘制一般地图点 */
   glPointSize(mPointSize);
   glBegin(GL_POINTS);
-  glColor3f(0.0, 0.0, 0.0);
+  glColor3f(0.0, 0.0, 0.0);  // 黑色
 
   for (size_t i = 0, iend = vpMPs.size(); i < iend; i++) {
     if (vpMPs[i]->isBad() || spRefMPs.count(vpMPs[i])) continue;
@@ -62,9 +64,10 @@ void MapDrawer::DrawMapPoints() {
   }
   glEnd();
 
+  /* 绘制局部地图点 */
   glPointSize(mPointSize);
   glBegin(GL_POINTS);
-  glColor3f(1.0, 0.0, 0.0);
+  glColor3f(1.0, 0.0, 0.0);  // 红色
 
   for (set<MapPoint *>::iterator sit = spRefMPs.begin(), send = spRefMPs.end();
        sit != send; sit++) {
@@ -76,6 +79,9 @@ void MapDrawer::DrawMapPoints() {
   glEnd();
 }
 
+/// @brief 绘制 KF 和共视图
+/// @param bDrawKF 绘制 KF 标志位
+/// @param bDrawGraph 绘制共视图标志位
 void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph) {
   const float &w = mKeyFrameSize;
   const float h = w * 0.75;
@@ -83,15 +89,19 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph) {
 
   const vector<KeyFrame *> vpKFs = mpMap->GetAllKeyFrames();
 
+  // 绘制 KF
   if (bDrawKF) {
     for (size_t i = 0; i < vpKFs.size(); i++) {
       KeyFrame *pKF = vpKFs[i];
+      // OpenGL Column-Major 所以要转置
       cv::Mat Twc = pKF->GetPoseInverse().t();
 
-      glPushMatrix();
+      // OpenGL 矩阵乘法貌似是用栈实现的，相比直接计算可能会有加速？
+      glPushMatrix();  // 矩阵入栈
 
-      glMultMatrixf(Twc.ptr<GLfloat>(0));
+      glMultMatrixf(Twc.ptr<GLfloat>(0));  // 左乘位姿矩阵
 
+      // 画框  四棱锥
       glLineWidth(mKeyFrameLineWidth);
       glColor3f(0.0f, 0.0f, 1.0f);
       glBegin(GL_LINES);
@@ -117,10 +127,11 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph) {
       glVertex3f(w, -h, z);
       glEnd();
 
-      glPopMatrix();
+      glPopMatrix();  // 矩阵出栈
     }
   }
 
+  // 绘制共视图
   if (bDrawGraph) {
     glLineWidth(mGraphLineWidth);
     glColor4f(0.0f, 1.0f, 0.0f, 0.6f);
@@ -128,13 +139,13 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph) {
 
     for (size_t i = 0; i < vpKFs.size(); i++) {
       // Covisibility Graph
-      const vector<KeyFrame *> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);
+      const vector<KeyFrame *> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);  // 本质图边  100 阈值是本质图
       cv::Mat Ow = vpKFs[i]->GetCameraCenter();
       if (!vCovKFs.empty()) {
         for (vector<KeyFrame *>::const_iterator vit = vCovKFs.begin(),
                                                 vend = vCovKFs.end();
              vit != vend; vit++) {
-          if ((*vit)->mnId < vpKFs[i]->mnId) continue;
+          if ((*vit)->mnId < vpKFs[i]->mnId) continue;  // 只画一次
           cv::Mat Ow2 = (*vit)->GetCameraCenter();
           glVertex3f(Ow.at<float>(0), Ow.at<float>(1), Ow.at<float>(2));
           glVertex3f(Ow2.at<float>(0), Ow2.at<float>(1), Ow2.at<float>(2));
@@ -165,6 +176,8 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph) {
   }
 }
 
+/// @brief 绘制当前相机
+/// @param Twc 
 void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc) {
   const float &w = mCameraSize;
   const float h = w * 0.75;
@@ -206,11 +219,15 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc) {
   glPopMatrix();
 }
 
+/// @brief 设置当前相机位姿
+/// @param Tcw 
 void MapDrawer::SetCurrentCameraPose(const cv::Mat &Tcw) {
   unique_lock<mutex> lock(mMutexCamera);
   mCameraPose = Tcw.clone();
 }
 
+/// @brief 获取当前相机位姿的 OpenGl 矩阵
+/// @param M 相机位姿  输出
 void MapDrawer::GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M) {
   if (!mCameraPose.empty()) {
     cv::Mat Rwc(3, 3, CV_32F);
@@ -221,6 +238,7 @@ void MapDrawer::GetCurrentOpenGLCameraMatrix(pangolin::OpenGlMatrix &M) {
       twc = -Rwc * mCameraPose.rowRange(0, 3).col(3);
     }
 
+    // Column-Major
     M.m[0] = Rwc.at<float>(0, 0);
     M.m[1] = Rwc.at<float>(1, 0);
     M.m[2] = Rwc.at<float>(2, 0);

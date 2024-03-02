@@ -44,6 +44,7 @@ class Viewer {
   // Main thread function. Draw points, keyframes, the current camera pose and
   // the last processed frame. Drawing is refreshed according to the camera fps.
   // We use Pangolin.
+
   void Run();
 
   void RequestFinish();
@@ -65,20 +66,27 @@ class Viewer {
   Tracking* mpTracker;
 
   // 1/fps in ms
-  double mT;
-  float mImageWidth, mImageHeight;
+  double mT;  // 相机周期
+  float mImageWidth;
+  float mImageHeight;
 
-  float mViewpointX, mViewpointY, mViewpointZ, mViewpointF;
+  float mViewpointX;
+  float mViewpointY;
+  float mViewpointZ;
+  float mViewpointF;
 
   bool CheckFinish();
   void SetFinish();
-  bool mbFinishRequested;
-  bool mbFinished;
-  std::mutex mMutexFinish;
 
-  bool mbStopped;
-  bool mbStopRequested;
-  std::mutex mMutexStop;
+  /* 终止相关 */
+  bool mbFinishRequested;  // 终止请求标志位
+  bool mbFinished;  // 终止标志位
+  std::mutex mMutexFinish;  // 终止互斥锁
+
+  /* 暂停相关 */
+  bool mbStopped;  // 暂停标志位
+  bool mbStopRequested;  // 暂停请求标志位
+  std::mutex mMutexStop;  // 暂停互斥锁
 };
 
 }  // namespace ORB_SLAM2
